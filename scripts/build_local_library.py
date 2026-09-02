@@ -31,9 +31,10 @@ HALAKHIC_CLASSICS=[
 
 def request(url,timeout=35,tries=3):
     last=None
+    encoded=urllib.parse.quote(url,safe=':/?&=%')
     for i in range(tries):
         try:
-            req=urllib.request.Request(url,headers={'User-Agent':'HaYad-HaHazaka/1.7.0','Accept':'application/json'})
+            req=urllib.request.Request(encoded,headers={'User-Agent':'HaYad-HaHazaka/1.7.0','Accept':'application/json'})
             return urllib.request.urlopen(req,timeout=timeout)
         except Exception as e:
             last=e; time.sleep(.35*(i+1))
@@ -51,7 +52,6 @@ def contains_any(t,arr):
 def target_cat(b):
     c=b.get('categories',[]); t=b.get('title',''); tl=t.casefold()
     if 'mishnah berurah' in tl: return None
-    # Primary corpora
     if 'Tanakh' in c and 'Commentary' not in c: return 'tanakh'
     if 'Mishnah' in c and 'Commentary' not in c: return 'mishnah'
     if 'Tosefta' in c and 'Commentary' not in c: return 'tosefta'
@@ -60,18 +60,15 @@ def target_cat(b):
     if t.startswith('Mishneh Torah') and ' on Mishneh Torah' not in t: return 'rambam'
     if t.startswith('Shulchan Arukh') and ' on Shulchan Arukh' not in t: return 'shulchan_arukh'
     if t.startswith('Tur') or t.startswith('Arbaah Turim') or t.startswith("Arba'ah Turim"): return 'tur'
-    # For a Rambam research tool, include every legally permitted commentary on Rambam / SA / Tur.
     if ' on Mishneh Torah' in t: return 'rishonim'
     if ' on Shulchan Arukh' in t: return 'shulchan_arukh'
     if ' on Tur' in t: return 'tur'
-    # Selected classical commentaries
     if starts_any(t,TANAKH_COMMENTATORS): return 'rishonim'
     if starts_any(t,TALMUD_COMMENTATORS): return 'rishonim'
     if starts_any(t,MIDRASH): return 'midrash'
     if starts_any(t,RESPONSA): return 'responsa'
     if starts_any(t,THOUGHT): return 'thought'
     if starts_any(t,HALAKHIC_CLASSICS): return 'halakhah'
-    # Bartenura / Rambam commentary on Mishnah
     if t.startswith('Bartenura on ') or t.startswith('Rambam on Mishnah') or t.startswith('Mishnah Commentary of the Rambam'):
         return 'rishonim'
     return None
@@ -89,7 +86,6 @@ def flatten(x,path=()):
     elif isinstance(x,list):
         for i,v in enumerate(x): yield from flatten(v,path+(i+1,))
     elif isinstance(x,dict):
-        # Complex Sefaria texts use named schema nodes. Preserve stable textual path labels in sequence order.
         for _,v in x.items(): yield from flatten(v,path)
 
 def make_ref(title,path,sections):
@@ -100,7 +96,6 @@ def make_ref(title,path,sections):
     return title+' '+':'.join(map(str,path))
 
 def safe_vtitle(s):
-    # Same illegal filename characters stripped by Sefaria's exporter.
     return re.sub(r'[/:()<>"|?*\\\r\n\t]','',s or '').strip().casefold()
 
 def he_version(v):
@@ -136,7 +131,7 @@ def download(sel,tmpdir):
         with request(b['json_url'],timeout=90,tries=3) as src,open(p,'wb') as dst: shutil.copyfileobj(src,dst)
         return title,sel,p,None
     except Exception as e:
-        return title,sel,None,type(e).__name__
+        return title,sel,None,type(e).__name__+': '+str(e)
 
 os.makedirs('resources',exist_ok=True)
 if os.path.exists(OUT): os.remove(OUT)
