@@ -1,8 +1,8 @@
 {
-  "name":"hayad-hahazaka","version":"1.7.0","private":true,"type":"module","main":"electron/main.cjs",
+  "name":"hayad-hahazaka","version":"1.7.1","private":true,"type":"module","main":"electron/main.cjs",
   "description":"הי״ד החזקה — מערכת העריכה, ההגהה והמחקר של מכון הרמב״ם הבהיר","author":"מכון הרמב״ם הבהיר",
-  "scripts":{"dev":"concurrently \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"","build:web":"vite build","build:win":"npm run build:web && electron-builder --win nsis --x64 --publish never","postinstall":"electron-builder install-app-deps"},
+  "scripts":{"dev":"concurrently \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"","build:web":"vite build","build:win":"npm run build:web && electron-builder --win nsis zip --x64 --publish never","postinstall":"electron-builder install-app-deps"},
   "dependencies":{"better-sqlite3":"^11.7.0","mammoth":"^1.8.0","pdf-parse":"^1.1.1","react":"^18.3.1","react-dom":"^18.3.1","tesseract.js":"^5.1.1"},
   "devDependencies":{"@vitejs/plugin-react":"^4.3.4","concurrently":"^9.1.0","electron":"^31.7.7","electron-builder":"^25.1.8","typescript":"^5.7.2","vite":"^6.0.5","wait-on":"^8.0.1"},
-  "build":{"appId":"org.rambamBahir.hayadHazaka","productName":"היד החזקה","artifactName":"HaYad-HaHazaka-Update-1.7.0.${ext}","directories":{"output":"release"},"files":["dist/**/*","electron/**/*","package.json","node_modules/**/*"],"extraResources":[{"from":"resources/torah-library.sqlite","to":"torah-library.sqlite"},{"from":"resources/ocr","to":"ocr"},{"from":"resources/corpus-manifest.json","to":"corpus-manifest.json"}],"nsis":{"oneClick":false,"allowToChangeInstallationDirectory":true,"createDesktopShortcut":true,"createStartMenuShortcut":true,"shortcutName":"היד החזקה"}}
+  "build":{"appId":"org.rambamBahir.hayadHazaka","productName":"היד החזקה","artifactName":"HaYad-HaHazaka-1.7.1-${arch}.${ext}","directories":{"output":"release"},"files":["dist/**/*","electron/**/*","package.json","node_modules/**/*"],"extraResources":[{"from":"resources/torah-library.sqlite","to":"torah-library.sqlite"},{"from":"resources/ocr","to":"ocr"},{"from":"resources/corpus-manifest.json","to":"corpus-manifest.json"}],"nsis":{"oneClick":false,"allowToChangeInstallationDirectory":true,"createDesktopShortcut":true,"createStartMenuShortcut":true,"shortcutName":"היד החזקה"}}
 }
