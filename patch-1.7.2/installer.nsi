@@ -1,4 +1,5 @@
 Unicode true
+!include "LogicLib.nsh"
 Name "הי״ד החזקה 1.7.2 — שחזור ממשק + מאגר מקומי"
 OutFile "HaYad-HaHazaka-Patch-1.7.2.exe"
 RequestExecutionLevel admin
