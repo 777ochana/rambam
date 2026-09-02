@@ -1,0 +1,47 @@
+name: Publish HaYad 1.7.0 Release
+on:
+  push:
+    branches: [publish-1.7.0]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download successful Windows build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifact
+          gh run download 33666616178 -n HaYad-HaHazaka-1.7.0 -D artifact
+          ls -lah artifact
+      - name: Verify release contents
+        run: |
+          test -f artifact/HaYad-HaHazaka-Update-1.7.0.exe
+          test -f artifact/SHA256-1.7.0.txt
+          test -f artifact/corpus-manifest.json
+          echo '--- SHA256 ---'
+          cat artifact/SHA256-1.7.0.txt
+          echo '--- Corpus ---'
+          python - <<'PY'
+          import json
+          m=json.load(open('artifact/corpus-manifest.json',encoding='utf8'))
+          print('books=',len(m.get('included',[])))
+          print('segments=',m.get('segments'))
+          print('categories=',m.get('categoryCounts'))
+          PY
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG='hayad-v1.7.0-local'
+          NOTES='גרסה 1.7.0 — מאגר תורני מקומי. המאגר פועל ללא אינטרנט, כולל חיפוש FTS5, תצוגה מקדימה והעתקה, OCR עברי והגדרת OpenAI API נפרדת לכל משתמש. משנה ברורה מוחרגת לפי דרישה. מצורפים SHA-256 ומניפסט מקורות ורישיונות.'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifact/HaYad-HaHazaka-Update-1.7.0.exe artifact/SHA256-1.7.0.txt artifact/corpus-manifest.json artifact/UPDATE-1.7.0-HE.md --clobber
+          else
+            gh release create "$TAG" artifact/HaYad-HaHazaka-Update-1.7.0.exe artifact/SHA256-1.7.0.txt artifact/corpus-manifest.json artifact/UPDATE-1.7.0-HE.md --title 'הי״ד החזקה 1.7.0 — מאגר תורני מקומי' --notes "$NOTES" --target a8a92e1540519efb6b41e8077b974a2153fce6fa
+          fi
