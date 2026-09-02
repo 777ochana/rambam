@@ -1,0 +1,38 @@
+name: Diagnose HaYad 1.7.5 Node Installer
+on:
+  push:
+    branches: [v1.7.5-selftest-fast]
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare tiny installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diag/payload/asar-tool,diag/payload/tools,diag/payload/local-library | Out-Null
+          '{"type":"commonjs","private":true}' | Set-Content diag/payload/package.json -Encoding utf8NoBOM
+          Copy-Item build175/apply-1.7.5.js diag/payload/apply-1.7.5.js
+          Copy-Item build175/patch-main-1.7.5.js diag/payload/patch-main-1.7.5.js
+          Copy-Item (Get-Command node).Source diag/payload/asar-tool/node.exe
+          npm install --prefix diag/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          choco install sqlite -y --no-progress
+          $sqlite=Get-ChildItem 'C:\ProgramData\chocolatey\lib\SQLite\tools' -Recurse -Filter sqlite3.exe -File | Select-Object -First 1
+          Copy-Item $sqlite.FullName diag/payload/local-library/sqlite3.exe
+          $seven=@('C:\Program Files\7-Zip\7z.exe','C:\Program Files (x86)\7-Zip\7z.exe') | Where-Object {Test-Path $_} | Select-Object -First 1
+          if(-not $seven){throw '7-Zip not found'}
+          Copy-Item $seven diag/payload/tools/7z.exe
+          Copy-Item (Join-Path (Split-Path $seven -Parent) '7z.dll') diag/payload/tools/7z.dll
+          Set-Content diag/payload/local-library/library.zip 'diagnostic-placeholder' -Encoding ascii
+      - name: Run updater self-test and print internal log
+        shell: pwsh
+        run: |
+          & diag/payload/asar-tool/node.exe diag/payload/apply-1.7.5.js diag/payload --selftest --quiet
+          $code=$LASTEXITCODE
+          Write-Host "SELFTEST EXIT=$code"
+          Write-Host '----- install log -----'
+          Get-Content "$env:TEMP\HaYad-1.7.5-install.log" -ErrorAction SilentlyContinue
+          Write-Host '----- result json -----'
+          Get-Content "$env:TEMP\HaYad-1.7.5-result.json" -ErrorAction SilentlyContinue
+          if($code -ne 0){exit $code}
