@@ -1,0 +1,32 @@
+name: Extract Local DB for 1.7.2
+on:
+  push:
+    branches: [v1.7.2-restore-ui]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  extract:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified 1.7.1 portable build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force prior, db | Out-Null
+          gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.zip' -D prior
+          7z x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
+          $db=Get-ChildItem prior/unpacked -Recurse -Filter 'torah-library.sqlite' -File | Select-Object -First 1
+          if(-not $db){ throw 'torah-library.sqlite not found' }
+          Copy-Item $db.FullName db/torah-library.sqlite
+          Get-Item db/torah-library.sqlite | Format-List FullName,Length
+          Get-FileHash db/torah-library.sqlite -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  torah-library.sqlite" } | Set-Content db/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hayad-local-db-1.7.2
+          path: db/*
+          compression-level: 0
+          retention-days: 7
