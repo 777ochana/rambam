@@ -1,0 +1,89 @@
+name: Build HaYad 1.7.5 UI-Locked Node Installer
+on:
+  push:
+    branches: [v1.7.5-ui-locked-node-installer]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.7.5-ui-locked-node-installer
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Node installer tools and validated corpus
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force build175/payload/asar-tool,build175/payload/tools,build175/payload/local-library,prior | Out-Null
+          Copy-Item build175/apply-1.7.5.js build175/payload/apply-1.7.5.js
+          Copy-Item build175/patch-main-1.7.5.js build175/payload/patch-main-1.7.5.js
+          Copy-Item (Get-Command node).Source build175/payload/asar-tool/node.exe
+          npm install --prefix build175/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build175/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
+
+          choco install sqlite nsis -y --no-progress
+          $sqlite=Get-ChildItem 'C:\ProgramData\chocolatey\lib\SQLite\tools' -Recurse -Filter sqlite3.exe -File | Select-Object -First 1
+          if(-not $sqlite){throw 'sqlite3.exe missing'}
+          Copy-Item $sqlite.FullName build175/payload/local-library/sqlite3.exe
+
+          $seven=(Get-Command 7z).Source
+          if(-not $seven){throw '7z.exe missing'}
+          Copy-Item $seven build175/payload/tools/7z.exe
+          $sevenDll=Join-Path (Split-Path $seven -Parent) '7z.dll'
+          if(-not (Test-Path $sevenDll)){throw '7z.dll missing'}
+          Copy-Item $sevenDll build175/payload/tools/7z.dll
+
+          gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.zip' -D prior
+          7z x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
+          $db=Get-ChildItem prior/unpacked -Recurse -Filter torah-library.sqlite -File | Select-Object -First 1
+          if(-not $db){throw 'Local corpus DB not found'}
+          Copy-Item $db.FullName build175/payload/local-library/torah-library.sqlite
+          $check=& build175/payload/local-library/sqlite3.exe -readonly build175/payload/local-library/torah-library.sqlite 'PRAGMA quick_check;'
+          if(($check|Out-String).Trim() -ne 'ok'){throw 'Corpus quick_check failed'}
+          Push-Location build175/payload/local-library
+          7z a -tzip -mx=6 library.zip torah-library.sqlite
+          if($LASTEXITCODE -ne 0){throw 'Corpus compression failed'}
+          Remove-Item torah-library.sqlite -Force
+          Pop-Location
+
+      - name: Validate updater syntax and run bundled Windows self-test
+        shell: pwsh
+        run: |
+          node --check build175/apply-1.7.5.js
+          node --check build175/patch-main-1.7.5.js
+          & build175/payload/asar-tool/node.exe build175/payload/apply-1.7.5.js build175/payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){throw "Node installer self-test failed: $LASTEXITCODE"}
+
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Copy-Item build175/installer-1.7.5.nsi build175/installer.nsi
+          Push-Location build175
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build175/HaYad-HaHazaka-Update-1.7.5.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.7.5.exe" | Set-Content build175/SHA256-1.7.5.txt
+          $tag='hayad-v1.7.5-ui-locked-node-installer'
+          $notes=@'
+          1.7.5 keeps the original 1.6.3 renderer byte-for-byte. The installer no longer invokes Windows PowerShell at all. A bundled Node runtime performs ASAR validation/patching, a bundled 7-Zip runtime expands the local corpus, and bundled SQLite performs quick_check. The installer prefers app-1.6.3-original.asar, validates the three locked renderer hashes before and after patching, and restores 1.6.3 if replacement validation fails. Missing master DOCX no longer crashes startup; this is backend-only and does not change the diagram, layout, colors, fonts, navigation or editor UI.
+          '@
+          if(gh release view $tag *> $null){
+            gh release upload $tag $exe build175/SHA256-1.7.5.txt --clobber
+          } else {
+            gh release create $tag $exe build175/SHA256-1.7.5.txt --title 'הרמב״ם הבהיר 1.7.5 — ממשק 1.6.3 AS IS + מאגר LOCAL, ללא PowerShell' --notes $notes --target $env:GITHUB_SHA
+          }
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
