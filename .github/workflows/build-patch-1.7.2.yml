@@ -1,0 +1,59 @@
+name: Build HaYad 1.7.2 Restore UI Patch
+on:
+  push:
+    branches: [v1.7.2-restore-ui]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.7.2-patch
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare exact local library payload
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force patch-1.7.2/payload/app,patch-1.7.2/payload/local-library,prior | Out-Null
+          Copy-Item patch-1.7.2/main.js patch-1.7.2/payload/app/main.js
+          Copy-Item patch-1.7.2/package.json patch-1.7.2/payload/app/package.json
+          gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.zip' -p 'corpus-manifest-1.7.1.json' -D prior
+          7z x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
+          $db=Get-ChildItem prior/unpacked -Recurse -Filter 'torah-library.sqlite' -File | Select-Object -First 1
+          if(-not $db){ throw 'Local Torah DB not found' }
+          Copy-Item $db.FullName patch-1.7.2/payload/local-library/torah-library.sqlite
+          Copy-Item prior/corpus-manifest-1.7.1.json patch-1.7.2/payload/local-library/corpus-manifest.json
+          Write-Host "DB MB=$([math]::Round((Get-Item patch-1.7.2/payload/local-library/torah-library.sqlite).Length/1MB,1))"
+      - name: Install SQLite CLI and NSIS
+        shell: pwsh
+        run: |
+          choco install sqlite nsis -y --no-progress
+          $sqlite=(Get-Command sqlite3.exe -ErrorAction Stop).Source
+          Copy-Item $sqlite patch-1.7.2/payload/local-library/sqlite3.exe
+          & patch-1.7.2/payload/local-library/sqlite3.exe -version
+      - name: Compile patch EXE
+        shell: pwsh
+        run: |
+          Push-Location patch-1.7.2
+          $makensis=(Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+          if(-not $makensis){$makensis='C:\Program Files (x86)\NSIS\makensis.exe'}
+          & $makensis installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+          Get-Item patch-1.7.2/HaYad-HaHazaka-Patch-1.7.2.exe | Format-List Name,Length
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='patch-1.7.2/HaYad-HaHazaka-Patch-1.7.2.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Patch-1.7.2.exe" | Set-Content patch-1.7.2/SHA256-1.7.2.txt
+          $notes='עדכון 1.7.2 שומר את ממשק 1.6.3 המקורי. הוא אינו מחליף את מסך השער, סביבת ההגהה, כלי Word, הנקדן או הניווט. העדכון מוסיף שכבת מאגר תורני LOCAL וכפתור שאל את המאגר על גבי הממשק המקורי. יש להתקין תחילה 1.6.3 המקורי.'
+          $tag='hayad-v1.7.2-restore-ui'
+          if(gh release view $tag *> $null){gh release upload $tag $exe patch-1.7.2/SHA256-1.7.2.txt --clobber}else{gh release create $tag $exe patch-1.7.2/SHA256-1.7.2.txt --title 'הי״ד החזקה 1.7.2 — ממשק 1.6.3 + מאגר LOCAL' --notes $notes --target $env:GITHUB_SHA}
