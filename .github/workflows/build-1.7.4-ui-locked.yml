@@ -63,9 +63,6 @@ jobs:
           $exe='build174/HaYad-HaHazaka-Update-1.7.4.exe'
           $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
           "$sha  HaYad-HaHazaka-Update-1.7.4.exe" | Set-Content build174/SHA256-1.7.4.txt
-          $notes=@'
-          1.7.4 is a backend-only local-library integration over the original 1.6.3 application. The renderer is SHA-256 locked: index.js, index.css and index.html must be byte-identical to 1.6.3 or installation aborts. It removes the obsolete resources/app wrapper from 1.7.2/1.7.3, patches only dist-electron/main.js inside app.asar, and adds the validated local SQLite/FTS5 corpus. No diagram, layout, colors, fonts, navigation or editor UI are changed.
-          '@
           $tag='hayad-v1.7.4-ui-locked'
-          if(gh release view $tag *> $null){gh release upload $tag $exe build174/SHA256-1.7.4.txt --clobber}else{gh release create $tag $exe build174/SHA256-1.7.4.txt --title 'הרמב״ם הבהיר 1.7.4 — ממשק 1.6.3 AS IS + מאגר LOCAL' --notes $notes --target $env:GITHUB_SHA}
-# retry after removing accidental self-copy
+          gh release upload $tag $exe build174/SHA256-1.7.4.txt --clobber
+          if($LASTEXITCODE -ne 0){throw 'Release upload failed'}
