@@ -7,6 +7,77 @@ const addAfter = (needle, value) => {
   s = s.replace(needle, needle + value);
 };
 addAfter('var _nodePath = _interopRequireDefault(require("node:path"));\n', 'var _nodeChildProcess = require("node:child_process");\n');
+const originalEnsureMaster = `function ensureMaster() {
+  const source = resourcePath('master', 'ספר שופטים גרסת מסטר.docx');
+  const managedDirectory = _nodePath.default.join(_electron.app.getPath('userData'), 'masters');
+  _nodeFs.default.mkdirSync(managedDirectory, {
+    recursive: true
+  });
+  masterPath = _nodePath.default.join(managedDirectory, 'ספר שופטים גרסת מסטר.docx');
+  if (!_nodeFs.default.existsSync(masterPath) || (0, _core.sha256)(_nodeFs.default.readFileSync(masterPath)) !== (0, _core.sha256)(_nodeFs.default.readFileSync(source))) {
+    _nodeFs.default.copyFileSync(source, masterPath);
+    try {
+      _nodeFs.default.chmodSync(masterPath, 0o444);
+    } catch {/* Windows read-only handling varies. */}
+  }
+  parsedMaster = (0, _master.parseMaster)(masterPath);
+}
+`;
+const safeEnsureMaster = `function ensureMaster() {
+  const source = resourcePath('master', 'ספר שופטים גרסת מסטר.docx');
+  const managedDirectory = _nodePath.default.join(_electron.app.getPath('userData'), 'masters');
+  _nodeFs.default.mkdirSync(managedDirectory, {
+    recursive: true
+  });
+  masterPath = _nodePath.default.join(managedDirectory, 'ספר שופטים גרסת מסטר.docx');
+  const sourceExists = _nodeFs.default.existsSync(source);
+  const managedExists = _nodeFs.default.existsSync(masterPath);
+  try {
+    if (sourceExists && (!managedExists || (0, _core.sha256)(_nodeFs.default.readFileSync(masterPath)) !== (0, _core.sha256)(_nodeFs.default.readFileSync(source)))) {
+      _nodeFs.default.copyFileSync(source, masterPath);
+      try {
+        _nodeFs.default.chmodSync(masterPath, 0o444);
+      } catch {/* Windows read-only handling varies. */}
+    }
+  } catch (error) {
+    console.warn('Master synchronization skipped:', error && error.message ? error.message : error);
+  }
+  if (_nodeFs.default.existsSync(masterPath)) {
+    try {
+      parsedMaster = (0, _master.parseMaster)(masterPath);
+      return;
+    } catch (error) {
+      console.warn('Managed master could not be parsed:', error && error.message ? error.message : error);
+    }
+  }
+  console.warn('Bundled master DOCX is unavailable; starting safely with an empty default master until a master is loaded by the user.');
+  parsedMaster = {
+    hash: '',
+    filename: 'ספר שופטים גרסת מסטר.docx',
+    chapters: [],
+    analysis: {
+      ooxmlParts: 0,
+      headers: 0,
+      footers: 0,
+      bookmarks: 0,
+      hyperlinks: 0,
+      tables: 0,
+      paragraphs: 0,
+      sanhedrinChapters: 0,
+      sanhedrinHalakhot: 0,
+      annotationStyle: {
+        styleId: null,
+        fontFamily: 'David',
+        fontSizePt: 12,
+        alignment: 'both',
+        lineHeight: 1.5
+      }
+    }
+  };
+}
+`;
+if (!s.includes(originalEnsureMaster)) throw new Error('Original ensureMaster block not found');
+s = s.replace(originalEnsureMaster, safeEnsureMaster);
 const marker = 'function keyFile() {\n';
 if (!s.includes(marker)) throw new Error('Original keyFile marker missing');
 const helpers = String.raw`// LOCAL_CORPUS_174 — backend only; renderer is not modified.
