@@ -1,0 +1,13 @@
+{
+  "name": "rambam-bahir-torah-library",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "torah:build": "node scripts/build-torah-pack.mjs",
+    "torah:test": "node scripts/test-sefaria.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
