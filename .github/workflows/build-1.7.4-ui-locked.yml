@@ -6,7 +6,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: hayad-1.7.4-ui-locked
+  group: hayad-1.7.4-ui-locked-final
   cancel-in-progress: true
 jobs:
   build:
