@@ -21,7 +21,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force build174/payload/asar-tool,build174/payload/local-library,prior | Out-Null
           Copy-Item build174/patch-main-1.7.4.js build174/payload/patch-main-1.7.4.js
-          Copy-Item build174/apply-1.7.4.ps1 build174/apply-1.7.4.ps1
           Copy-Item (Get-Command node).Source build174/payload/asar-tool/node.exe
           npm install --prefix build174/payload/asar-tool @electron/asar@3.4.1 --omit=dev
           if(-not (Test-Path 'build174/payload/asar-tool/node_modules/@electron/asar/bin/asar.js')){throw 'ASAR tool missing'}
