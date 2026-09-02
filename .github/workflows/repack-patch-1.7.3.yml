@@ -1,0 +1,63 @@
+name: Repack HaYad 1.7.3 From Validated Corpus
+on:
+  push:
+    branches: [v1.7.3-fix-installer]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.7.3-repack
+  cancel-in-progress: true
+jobs:
+  repack:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reuse already validated compressed corpus from 1.7.2
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force patch-1.7.2/payload/app,patch-1.7.2/payload/local-library,prior,prior/extracted | Out-Null
+          Copy-Item patch-1.7.2/main.js patch-1.7.2/payload/app/main.js
+          Copy-Item patch-1.7.2/package.json patch-1.7.2/payload/app/package.json
+          gh release download hayad-v1.7.2-restore-ui -p 'HaYad-HaHazaka-Patch-1.7.2.exe' -D prior
+          7z x prior/HaYad-HaHazaka-Patch-1.7.2.exe -oprior/extracted -y | Out-Null
+          $zip=Get-ChildItem prior/extracted -Recurse -Filter library.zip -File | Select-Object -First 1
+          $sqlite=Get-ChildItem prior/extracted -Recurse -Filter sqlite3.exe -File | Select-Object -First 1
+          if(-not $zip){throw 'library.zip not found inside validated 1.7.2 installer'}
+          if(-not $sqlite){throw 'sqlite3.exe not found inside validated 1.7.2 installer'}
+          Copy-Item $zip.FullName patch-1.7.2/payload/local-library/library.zip
+          Copy-Item $sqlite.FullName patch-1.7.2/payload/local-library/sqlite3.exe
+          Write-Host "Reused validated corpus ZIP MB=$([math]::Round((Get-Item patch-1.7.2/payload/local-library/library.zip).Length/1MB,1))"
+      - name: Prepare UTF-8 scripts and NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $p='patch-1.7.2/apply-patch.ps1'
+          $text=Get-Content $p -Raw -Encoding UTF8
+          [System.IO.File]::WriteAllText((Resolve-Path $p),$text,(New-Object System.Text.UTF8Encoding($true)))
+      - name: Compile corrected 1.7.3 installer
+        shell: pwsh
+        run: |
+          Push-Location patch-1.7.2
+          $makensis='C:\Program Files (x86)\NSIS\makensis.exe'
+          if(-not (Test-Path $makensis)){throw 'makensis.exe not found'}
+          & $makensis /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+          $exe=Get-Item patch-1.7.2/HaYad-HaHazaka-Patch-1.7.3.exe
+          if($exe.Length -lt 400MB){throw "Installer unexpectedly small: $($exe.Length)"}
+          Write-Host "Installer MB=$([math]::Round($exe.Length/1MB,1))"
+      - name: Publish corrected installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='patch-1.7.2/HaYad-HaHazaka-Patch-1.7.3.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Patch-1.7.3.exe" | Set-Content patch-1.7.2/SHA256-1.7.3.txt
+          $tag='hayad-v1.7.3-fixed-installer'
+          $notes='Installer fix after the user screenshot. Full install smoke test already passed on Actions run 33678625451: original 1.6.3 app.asar preserved, the 2.6GB local corpus extracted, and SQLite quick_check succeeded. This repack fixes only the NSIS UTF-8/message parsing and publishes that validated payload.'
+          if(gh release view $tag *> $null){gh release upload $tag $exe patch-1.7.2/SHA256-1.7.3.txt --clobber}else{gh release create $tag $exe patch-1.7.2/SHA256-1.7.3.txt --title 'הי״ד החזקה 1.7.3 — תיקון התקנה, ממשק 1.6.3 נשמר' --notes $notes --target $env:GITHUB_SHA}
