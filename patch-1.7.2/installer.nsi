@@ -20,8 +20,7 @@ Section "Install"
   DetailPrint "מעדכן את הי״ד החזקה 1.6.3 בלי לשנות את הממשק..."
   ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$TEMP\HaYad173Patch\apply-patch.ps1" -Payload "$TEMP\HaYad173Patch"' $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "העדכון נעצר. קוד שגיאה: $0$$
-לוג מפורט נשמר בתיקיית TEMP בשם HaYad-1.7.3-install.log"
+    MessageBox MB_ICONSTOP "העדכון נעצר. קוד שגיאה: $0. לוג: %TEMP%\HaYad-1.7.3-install.log"
     Abort
   ${EndIf}
 SectionEnd
