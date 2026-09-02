@@ -1,0 +1,43 @@
+name: Compatibility test HaYad 1.7.0
+on:
+  push:
+    branches: [compat-test-1.7.0]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-installer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download published installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          gh release download hayad-v1.7.0-local -p 'HaYad-HaHazaka-Update-1.7.0.exe' -D artifact
+          Get-Item artifact/HaYad-HaHazaka-Update-1.7.0.exe | Format-List Name,Length,VersionInfo
+          $hash=(Get-FileHash artifact/HaYad-HaHazaka-Update-1.7.0.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256=$hash"
+          if($hash -ne 'ba32141855676378fc25f4207d7ee1d2b2c8a5e2b312f4bf2560c5367c0d10ba'){ throw 'SHA mismatch' }
+      - name: Verify PE executable header
+        shell: pwsh
+        run: |
+          $bytes=[System.IO.File]::ReadAllBytes((Resolve-Path 'artifact/HaYad-HaHazaka-Update-1.7.0.exe'))
+          if($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A){ throw 'Missing MZ header' }
+          $pe=[BitConverter]::ToInt32($bytes,0x3C)
+          if($bytes[$pe] -ne 0x50 -or $bytes[$pe+1] -ne 0x45){ throw 'Missing PE header' }
+          $machine=[BitConverter]::ToUInt16($bytes,$pe+4)
+          Write-Host ('PE machine=0x{0:X4}' -f $machine)
+      - name: Silent install smoke test
+        shell: pwsh
+        run: |
+          $dest='C:\HaYadCompatTest'
+          if(Test-Path $dest){ Remove-Item $dest -Recurse -Force }
+          $p=Start-Process -FilePath (Resolve-Path 'artifact/HaYad-HaHazaka-Update-1.7.0.exe') -ArgumentList '/S',('/D='+$dest) -Wait -PassThru
+          Write-Host "Installer exit code=$($p.ExitCode)"
+          if($p.ExitCode -ne 0){ throw "Installer failed: $($p.ExitCode)" }
+          Get-ChildItem $dest -Recurse -Filter '*.exe' | Select-Object FullName,Length
+          if(-not (Get-ChildItem $dest -Recurse -Filter '*.exe' | Where-Object {$_.Name -notmatch 'unins'})){ throw 'Installed app exe not found' }
