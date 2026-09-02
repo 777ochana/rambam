@@ -10,6 +10,7 @@ Page instfiles
 Section "Install"
   RMDir /r "$TEMP\HaYad175Payload"
   SetOutPath "$TEMP\HaYad175Payload"
+  File "payload\package.json"
   File "payload\apply-1.7.5.js"
   File "payload\patch-main-1.7.5.js"
   SetOutPath "$TEMP\HaYad175Payload\asar-tool"
