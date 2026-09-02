@@ -29,7 +29,7 @@ jobs:
           Copy-Item $db.FullName patch-1.7.2/payload/local-library/torah-library.sqlite
           Copy-Item prior/corpus-manifest-1.7.1.json patch-1.7.2/payload/local-library/corpus-manifest.json
           Write-Host "DB MB=$([math]::Round((Get-Item patch-1.7.2/payload/local-library/torah-library.sqlite).Length/1MB,1))"
-      - name: Install SQLite CLI and NSIS
+      - name: Install tools and compress corpus
         shell: pwsh
         run: |
           choco install sqlite nsis -y --no-progress
@@ -37,6 +37,14 @@ jobs:
           if(-not $sqlite){ throw 'sqlite3.exe not found after Chocolatey install' }
           Copy-Item $sqlite.FullName patch-1.7.2/payload/local-library/sqlite3.exe
           & patch-1.7.2/payload/local-library/sqlite3.exe -version
+          Push-Location patch-1.7.2/payload/local-library
+          7z a -tzip -mx=6 library.zip torah-library.sqlite corpus-manifest.json
+          if($LASTEXITCODE -ne 0){throw 'Corpus compression failed'}
+          $zip=Get-Item library.zip
+          Write-Host "Compressed corpus MB=$([math]::Round($zip.Length/1MB,1))"
+          if($zip.Length -ge 1800MB){throw 'Compressed corpus is too large for safe NSIS packaging'}
+          Remove-Item torah-library.sqlite,corpus-manifest.json -Force
+          Pop-Location
       - name: Compile patch EXE
         shell: pwsh
         run: |
