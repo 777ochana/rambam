@@ -32,22 +32,24 @@ jobs:
           if(-not $sqlite){throw 'sqlite3.exe missing'}
           Copy-Item $sqlite.FullName build175/payload/local-library/sqlite3.exe
 
-          $seven=(Get-Command 7z).Source
-          if(-not $seven){throw '7z.exe missing'}
-          Copy-Item $seven build175/payload/tools/7z.exe
+          $sevenCandidates=@('C:\Program Files\7-Zip\7z.exe','C:\Program Files (x86)\7-Zip\7z.exe')
+          $seven=$sevenCandidates | Where-Object {Test-Path $_} | Select-Object -First 1
+          if(-not $seven){throw 'Real 7-Zip executable missing'}
           $sevenDll=Join-Path (Split-Path $seven -Parent) '7z.dll'
-          if(-not (Test-Path $sevenDll)){throw '7z.dll missing'}
+          if(-not (Test-Path $sevenDll)){throw 'Real 7z.dll missing'}
+          Copy-Item $seven build175/payload/tools/7z.exe
           Copy-Item $sevenDll build175/payload/tools/7z.dll
 
           gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.zip' -D prior
-          7z x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
+          & $seven x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'Prior corpus extraction failed'}
           $db=Get-ChildItem prior/unpacked -Recurse -Filter torah-library.sqlite -File | Select-Object -First 1
           if(-not $db){throw 'Local corpus DB not found'}
           Copy-Item $db.FullName build175/payload/local-library/torah-library.sqlite
           $check=& build175/payload/local-library/sqlite3.exe -readonly build175/payload/local-library/torah-library.sqlite 'PRAGMA quick_check;'
           if(($check|Out-String).Trim() -ne 'ok'){throw 'Corpus quick_check failed'}
           Push-Location build175/payload/local-library
-          7z a -tzip -mx=6 library.zip torah-library.sqlite
+          & $seven a -tzip -mx=6 library.zip torah-library.sqlite
           if($LASTEXITCODE -ne 0){throw 'Corpus compression failed'}
           Remove-Item torah-library.sqlite -Force
           Pop-Location
