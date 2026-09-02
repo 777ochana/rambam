@@ -1,0 +1,40 @@
+name: Launch test HaYad 1.7.1
+on:
+  push:
+    branches: [launch-test-1.7.1]
+  workflow_dispatch:
+jobs:
+  launch:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download 1.7.1 release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.exe' -D artifact
+      - name: Install and launch application
+        shell: pwsh
+        run: |
+          $installer=(Resolve-Path 'artifact/HaYad-HaHazaka-1.7.1-x64.exe').Path
+          $dest='C:\HaYad171Launch'
+          if(Test-Path $dest){ Remove-Item $dest -Recurse -Force }
+          $i=Start-Process -FilePath $installer -ArgumentList '/S',('/D='+$dest) -Wait -PassThru
+          if($i.ExitCode -ne 0){ throw "Installer exit code $($i.ExitCode)" }
+          $app=Get-ChildItem $dest -Recurse -Filter '*.exe' | Where-Object {$_.Name -notmatch 'unins|elevate'} | Select-Object -First 1
+          if(-not $app){ throw 'Installed app EXE not found' }
+          $log='C:\HaYad171Launch\electron-launch.log'
+          $env:ELECTRON_ENABLE_LOGGING='1'
+          $p=Start-Process -FilePath $app.FullName -ArgumentList '--enable-logging',('--log-file='+$log) -PassThru
+          Start-Sleep -Seconds 12
+          if($p.HasExited){
+            Write-Host "APP EXITED code=$($p.ExitCode)"
+            if(Test-Path $log){ Get-Content $log -Raw | Write-Host }
+            throw 'Application crashed during launch smoke test'
+          }
+          Write-Host "APP ALIVE pid=$($p.Id) path=$($app.FullName)"
+          Stop-Process -Id $p.Id -Force
+          if(Test-Path $log){ Get-Content $log -Raw | Write-Host }
