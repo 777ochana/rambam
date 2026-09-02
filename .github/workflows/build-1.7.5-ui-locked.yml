@@ -6,7 +6,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: hayad-1.7.5-ui-locked-node-installer-final-v2
+  group: hayad-1.7.5-ui-locked-node-installer-final-v3
   cancel-in-progress: true
 jobs:
   build:
@@ -60,8 +60,16 @@ jobs:
         run: |
           node --check build175/apply-1.7.5.js
           node --check build175/patch-main-1.7.5.js
-          & build175/payload/asar-tool/node.exe build175/payload/apply-1.7.5.js build175/payload --selftest --quiet
-          if($LASTEXITCODE -ne 0){throw "Node installer self-test failed: $LASTEXITCODE"}
+          $payload=(Resolve-Path build175/payload).Path
+          $node=(Resolve-Path build175/payload/asar-tool/node.exe).Path
+          $script=(Resolve-Path build175/payload/apply-1.7.5.js).Path
+          & $node $script $payload --selftest --quiet
+          $code=$LASTEXITCODE
+          if($code -ne 0){
+            Get-Content "$env:TEMP\HaYad-1.7.5-install.log" -ErrorAction SilentlyContinue
+            Get-Content "$env:TEMP\HaYad-1.7.5-result.json" -ErrorAction SilentlyContinue
+            throw "Node installer self-test failed: $code"
+          }
 
       - name: Compile Unicode installer
         shell: pwsh
@@ -84,7 +92,10 @@ jobs:
           $notes=@'
           1.7.5 keeps the original 1.6.3 renderer byte-for-byte. The installer no longer invokes Windows PowerShell at all. A bundled Node runtime performs ASAR validation/patching, a bundled 7-Zip runtime expands the local corpus, and bundled SQLite performs quick_check. The installer prefers app-1.6.3-original.asar, validates the three locked renderer hashes before and after patching, and restores 1.6.3 if replacement validation fails. Missing master DOCX no longer crashes startup; this is backend-only and does not change the diagram, layout, colors, fonts, navigation or editor UI.
           '@
-          if(gh release view $tag *> $null){
+          $exists=$false
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){$exists=$true}
+          if($exists){
             gh release upload $tag $exe build175/SHA256-1.7.5.txt --clobber
           } else {
             gh release create $tag $exe build175/SHA256-1.7.5.txt --title 'הרמב״ם הבהיר 1.7.5 — ממשק 1.6.3 AS IS + מאגר LOCAL, ללא PowerShell' --notes $notes --target $env:GITHUB_SHA
