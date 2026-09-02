@@ -33,15 +33,17 @@ jobs:
         shell: pwsh
         run: |
           choco install sqlite nsis -y --no-progress
-          $sqlite=(Get-Command sqlite3.exe -ErrorAction Stop).Source
-          Copy-Item $sqlite patch-1.7.2/payload/local-library/sqlite3.exe
+          $sqlite=Get-ChildItem 'C:\ProgramData\chocolatey\lib\SQLite\tools' -Recurse -Filter sqlite3.exe -File | Select-Object -First 1
+          if(-not $sqlite){ throw 'sqlite3.exe not found after Chocolatey install' }
+          Copy-Item $sqlite.FullName patch-1.7.2/payload/local-library/sqlite3.exe
           & patch-1.7.2/payload/local-library/sqlite3.exe -version
       - name: Compile patch EXE
         shell: pwsh
         run: |
           Push-Location patch-1.7.2
-          $makensis=(Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
-          if(-not $makensis){$makensis='C:\Program Files (x86)\NSIS\makensis.exe'}
+          $makensis='C:\Program Files (x86)\NSIS\makensis.exe'
+          if(-not (Test-Path $makensis)){ $makensis=(Get-ChildItem 'C:\Program Files*' -Recurse -Filter makensis.exe -File -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+          if(-not $makensis){ throw 'makensis.exe not found' }
           & $makensis installer.nsi
           if($LASTEXITCODE -ne 0){throw 'makensis failed'}
           Pop-Location
