@@ -1,5 +1,8 @@
 name: Build HaYad 1.7.0 Local Library
-on: [workflow_dispatch]
+on:
+  push:
+    branches: [v1.7.0-local-library]
+  workflow_dispatch:
 jobs:
  build:
   runs-on: windows-latest
