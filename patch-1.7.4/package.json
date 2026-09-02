@@ -1,0 +1,6 @@
+{
+  "name": "hayad-hahazaka-ui-locked-bridge",
+  "version": "1.7.4",
+  "description": "Backend-only local-library bridge for original HaYad 1.6.3 UI",
+  "main": "main.js"
+}
