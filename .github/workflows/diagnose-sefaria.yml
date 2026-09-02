@@ -1,0 +1,41 @@
+name: Diagnose Sefaria mappings
+on:
+  push:
+    branches: [diagnose-sefaria]
+  workflow_dispatch:
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe Sefaria
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,urllib.request,urllib.parse,re
+          H={'User-Agent':'HaYad-HaHazaka/1.7.0','Accept':'application/json'}
+          def get(u):
+            with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=30) as r:return json.load(r)
+          def safe(s):return re.sub(r'[/:()<>"|?*\\\r\n\t]','',s or '').strip().casefold()
+          books=get('https://raw.githubusercontent.com/Sefaria/Sefaria-Export/master/books.json')['books']
+          titles=['Genesis','Berakhot','Mishneh Torah, Human Dispositions','Shulchan Arukh, Orach Chayim']
+          for title in titles:
+            print('\n###',title)
+            bs=[b for b in books if b.get('title')==title and b.get('language')=='Hebrew']
+            print('BOOKS JSON COUNT',len(bs))
+            print('BOOK TITLES',[(b.get('versionTitle'),b.get('json_url')) for b in bs[:8]])
+            meta=get('https://www.sefaria.org/api/texts/versions/'+urllib.parse.quote(title,safe=''))
+            print('VERSIONS COUNT',len(meta) if isinstance(meta,list) else type(meta))
+            for v in (meta[:10] if isinstance(meta,list) else []):
+              print('VERSION',v.get('versionTitle'),'LANG',v.get('language'),'ACTUAL',v.get('actualLanguage'),'LICENSE',v.get('license'),'SAFE',safe(v.get('versionTitle')))
+            by={safe(b.get('versionTitle')):b for b in bs if b.get('versionTitle')!='merged'}
+            for v in (meta if isinstance(meta,list) else []):
+              if (v.get('license') or '') in {'Public Domain','CC0','CC-BY','CC-BY-SA'} and safe(v.get('versionTitle')) in by:
+                b=by[safe(v.get('versionTitle'))]
+                print('MATCH',v.get('versionTitle'),'->',b.get('versionTitle'),v.get('license'))
+                try:
+                  d=get(b['json_url']); print('EXPORT KEYS',list(d)[:25],'EXPORT LICENSE',d.get('license'),'LANG',d.get('language'),'TEXTTYPE',type(d.get('text')).__name__)
+                except Exception as e: print('EXPORT ERR',repr(e))
+                break
+          PY
