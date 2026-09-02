@@ -3,6 +3,9 @@ on:
   push:
     branches: [v1.7.0-local-library]
   workflow_dispatch:
+concurrency:
+  group: hayad-1.7.0-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
  build:
   runs-on: windows-latest
@@ -16,9 +19,13 @@ jobs:
    - name: Build licensed local Torah corpus
      shell: pwsh
      run: |
-       python scripts/build_local_library.py
+       python -u scripts/build_local_library.py
        New-Item -ItemType Directory -Force resources/ocr | Out-Null
        Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata_fast/raw/main/heb.traineddata -OutFile resources/ocr/heb.traineddata
+   - name: Validate corpus
+     shell: pwsh
+     run: |
+       python -c "import json,sys; m=json.load(open('resources/corpus-manifest.json',encoding='utf8')); print('BOOKS=',len(m['included']),'SEGMENTS=',m['segments']); sys.exit(0 if len(m['included'])>=100 and m['segments']>=10000 else 2)"
    - name: Install and build Windows EXE
      shell: pwsh
      run: |
@@ -29,6 +36,7 @@ jobs:
      run: |
        Get-FileHash release/HaYad-HaHazaka-Update-1.7.0.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  HaYad-HaHazaka-Update-1.7.0.exe" } | Set-Content release/SHA256-1.7.0.txt
        Copy-Item resources/corpus-manifest.json release/corpus-manifest.json
+       Copy-Item UPDATE-1.7.0-HE.md release/UPDATE-1.7.0-HE.md
    - uses: actions/upload-artifact@v4
      with:
        name: HaYad-HaHazaka-1.7.0
@@ -36,5 +44,6 @@ jobs:
         release/HaYad-HaHazaka-Update-1.7.0.exe
         release/SHA256-1.7.0.txt
         release/corpus-manifest.json
+        release/UPDATE-1.7.0-HE.md
        compression-level: 0
        retention-days: 30
