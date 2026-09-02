@@ -5,7 +5,7 @@ OutFile "HaYad-HaHazaka-Patch-1.7.3.exe"
 RequestExecutionLevel admin
 SilentInstall normal
 ShowInstDetails show
-SetCompressor /SOLID lzma
+SetCompressor zlib
 
 Page instfiles
 
