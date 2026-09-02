@@ -68,3 +68,4 @@ jobs:
           '@
           $tag='hayad-v1.7.4-ui-locked'
           if(gh release view $tag *> $null){gh release upload $tag $exe build174/SHA256-1.7.4.txt --clobber}else{gh release create $tag $exe build174/SHA256-1.7.4.txt --title 'הרמב״ם הבהיר 1.7.4 — ממשק 1.6.3 AS IS + מאגר LOCAL' --notes $notes --target $env:GITHUB_SHA}
+# retry after removing accidental self-copy
