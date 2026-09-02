@@ -58,7 +58,7 @@ jobs:
           Remove-Item $fake -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force (Join-Path $fake 'resources') | Out-Null
           Set-Content (Join-Path $fake 'resources\app.asar') 'ORIGINAL-1.6.3-ASAR' -Encoding ASCII
-          & .\patch-1.7.2\apply-patch.ps1 -Payload (Resolve-Path '.\patch-1.7.2\payload').Path
+          & .\patch-1.7.2\apply-patch.ps1 -Payload (Resolve-Path '.\patch-1.7.2\payload').Path -Quiet
           if($LASTEXITCODE -ne 0){ throw "Patch smoke test failed with $LASTEXITCODE" }
           if(-not (Test-Path (Join-Path $fake 'resources\app-1.6.3-original.asar'))){throw 'Original app.asar backup missing'}
           if(-not (Test-Path (Join-Path $fake 'resources\local-library\torah-library.sqlite'))){throw 'Local DB missing after patch'}
