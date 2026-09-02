@@ -36,12 +36,13 @@ jobs:
           $m=Get-Content resources/corpus-manifest.json -Raw | ConvertFrom-Json
           Write-Host "Reused books=$($m.included.Count) segments=$($m.segments) DB=$([math]::Round((Get-Item resources/torah-library.sqlite).Length/1MB,1))MB"
           if($m.included.Count -lt 100 -or $m.segments -lt 10000){ throw 'Corpus validation failed' }
-      - name: Install dependencies and type/build checks
+      - name: Build Windows installer only
         shell: pwsh
         run: |
           npm install
           npx tsc --noEmit
-          npm run build:win
+          npm run build:web
+          npx electron-builder --win nsis --x64 --publish never
       - name: Test installer on Windows x64
         shell: pwsh
         run: |
@@ -54,26 +55,19 @@ jobs:
           $appExe=Get-ChildItem $dest -Recurse -Filter '*.exe' | Where-Object {$_.Name -notmatch 'unins|elevate'} | Select-Object -First 1
           if(-not $appExe){ throw 'Installed application EXE missing' }
           Write-Host "Installed OK: $($appExe.FullName)"
-      - name: Verify ZIP and checksums
+      - name: Checksum
         shell: pwsh
         run: |
-          $zip=Get-ChildItem release -Filter '*.zip' | Select-Object -First 1
-          $exe=Get-ChildItem release -Filter '*.exe' | Select-Object -First 1
-          if(-not $zip){ throw 'ZIP build missing' }
-          7z l $zip.FullName | Select-String 'היד החזקה.exe|torah-library.sqlite' | Write-Host
+          $exe=Get-ChildItem release -Filter '*.exe' | Where-Object {$_.Name -notmatch 'unins'} | Select-Object -First 1
           Get-FileHash $exe.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($exe.Name)" } | Set-Content release/SHA256-1.7.1.txt
-          Get-FileHash $zip.FullName -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($zip.Name)" } | Add-Content release/SHA256-1.7.1.txt
           Copy-Item resources/corpus-manifest.json release/corpus-manifest-1.7.1.json
-      - name: Publish 1.7.1 release
+      - name: Publish installer
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag='hayad-v1.7.1-local-chat'
-          $assets=@()
-          $assets += (Get-ChildItem release -Filter '*.exe' | Select-Object -First 1).FullName
-          $assets += (Get-ChildItem release -Filter '*.zip' | Select-Object -First 1).FullName
-          $assets += (Resolve-Path 'release/SHA256-1.7.1.txt').Path
-          $assets += (Resolve-Path 'release/corpus-manifest-1.7.1.json').Path
-          $notes='גרסה 1.7.1 — שאל את המאגר. צאט LOCAL המבוסס על המאגר המקומי, העתקת תשובה ומקורות, סיכום AI אופציונלי עם API של המשתמש בלבד. מצורפים גם מתקין Windows וגם ZIP להפעלה ישירה במקרה ש-Windows חוסם את המתקין.'
+          $exe=(Get-ChildItem release -Filter '*.exe' | Where-Object {$_.Name -notmatch 'unins'} | Select-Object -First 1).FullName
+          $assets=@($exe,(Resolve-Path 'release/SHA256-1.7.1.txt').Path,(Resolve-Path 'release/corpus-manifest-1.7.1.json').Path)
+          $notes='גרסה 1.7.1 — שאל את המאגר. LOCAL בלבד: ללא Sefaria וללא HebrewBooks בזמן שימוש. כולל מאגר מקומי, העתקת תשובה ומקורות, יבוא ספרים ידני/OCR, וסיכום AI אופציונלי עם API של המשתמש.'
           if(gh release view $tag *> $null){ gh release upload $tag $assets --clobber } else { gh release create $tag $assets --title 'הי״ד החזקה 1.7.1 — שאל את המאגר' --notes $notes --target $env:GITHUB_SHA }
