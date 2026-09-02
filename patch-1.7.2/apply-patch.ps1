@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Payload)
+param([Parameter(Mandatory=$true)][string]$Payload,[switch]$Quiet)
 $ErrorActionPreference='Stop'
 $log=Join-Path $env:TEMP 'HaYad-1.7.3-install.log'
 "[$(Get-Date -Format o)] Starting HaYad 1.7.3 patch" | Set-Content $log -Encoding UTF8
@@ -19,16 +19,14 @@ function CandidatePaths {
   foreach($r in $reg){
     Get-ItemProperty $r -ErrorAction SilentlyContinue | ForEach-Object {
       if($_.InstallLocation){$paths += $_.InstallLocation}
-      if($_.DisplayIcon){
-        try{$paths += Split-Path ($_.DisplayIcon -replace '"','') -Parent}catch{}
-      }
+      if($_.DisplayIcon){try{$paths += Split-Path ($_.DisplayIcon -replace '"','') -Parent}catch{}}
     }
   }
   $paths | Where-Object {$_} | Select-Object -Unique
 }
 
 try {
-  Log "Payload=$Payload"
+  Log "Payload=$Payload Quiet=$Quiet"
   $target=$null
   foreach($p in CandidatePaths){
     if((Test-Path (Join-Path $p 'resources\app.asar')) -or (Test-Path (Join-Path $p 'resources\app-1.6.3-original.asar'))){$target=$p;break}
@@ -85,24 +83,26 @@ try {
   Log "SQLite quick_check=$integrity"
   if(($integrity | Out-String).Trim() -ne 'ok'){ throw "SQLite integrity check failed: $integrity" }
 
-  $marker=@{
-    version='1.7.3'; base='1.6.3'; ui='original-1.6.3'; localLibrary=$true; installedAt=(Get-Date).ToString('o')
-  }|ConvertTo-Json
+  $marker=@{version='1.7.3';base='1.6.3';ui='original-1.6.3';localLibrary=$true;installedAt=(Get-Date).ToString('o')}|ConvertTo-Json
   Set-Content (Join-Path $res 'rambam-bahir-1.7.3.json') $marker -Encoding UTF8
   Log 'Patch completed successfully'
 
-  Add-Type -AssemblyName PresentationFramework
-  [System.Windows.MessageBox]::Show('עדכון 1.7.3 הותקן בהצלחה. ממשק 1.6.3 המקורי נשמר ונוסף המאגר המקומי.','הרמב״ם הבהיר') | Out-Null
-  if($appExe){ Start-Process $appExe.FullName }
+  if(-not $Quiet){
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show('עדכון 1.7.3 הותקן בהצלחה. ממשק 1.6.3 המקורי נשמר ונוסף המאגר המקומי.','הרמב״ם הבהיר') | Out-Null
+    if($appExe){ Start-Process $appExe.FullName }
+  }
   exit 0
 }
 catch {
   $msg=$_.Exception.Message
   Log "ERROR: $msg"
   Log ($_ | Out-String)
-  try {
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show("העדכון נעצר. לא בוצעה החלפת עיצוב.\n\nשגיאה: $msg\n\nלוג: $log",'הרמב״ם הבהיר') | Out-Null
-  } catch {}
+  if(-not $Quiet){
+    try {
+      Add-Type -AssemblyName PresentationFramework
+      [System.Windows.MessageBox]::Show("העדכון נעצר. לא בוצעה החלפת עיצוב.\n\nשגיאה: $msg\n\nלוג: $log",'הרמב״ם הבהיר') | Out-Null
+    } catch {}
+  }
   exit 10
 }
