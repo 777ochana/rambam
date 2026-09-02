@@ -21,6 +21,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force build175/payload/asar-tool,build175/payload/tools,build175/payload/local-library,prior | Out-Null
+          '{"type":"commonjs","private":true}' | Set-Content build175/payload/package.json -Encoding utf8NoBOM
           Copy-Item build175/apply-1.7.5.js build175/payload/apply-1.7.5.js
           Copy-Item build175/patch-main-1.7.5.js build175/payload/patch-main-1.7.5.js
           Copy-Item (Get-Command node).Source build175/payload/asar-tool/node.exe
@@ -49,7 +50,7 @@ jobs:
           $check=& build175/payload/local-library/sqlite3.exe -readonly build175/payload/local-library/torah-library.sqlite 'PRAGMA quick_check;'
           if(($check|Out-String).Trim() -ne 'ok'){throw 'Corpus quick_check failed'}
           Push-Location build175/payload/local-library
-          & $seven a -tzip -mx=6 library.zip torah-library.sqlite
+          & $seven a -tzip -mx=1 library.zip torah-library.sqlite
           if($LASTEXITCODE -ne 0){throw 'Corpus compression failed'}
           Remove-Item torah-library.sqlite -Force
           Pop-Location
