@@ -6,6 +6,7 @@ const cp = require('child_process');
 
 const payload = process.argv[2];
 const quiet = process.argv.includes('--quiet');
+const selftest = process.argv.includes('--selftest');
 const logPath = path.join(os.tmpdir(), 'HaYad-1.7.5-install.log');
 const resultPath = path.join(os.tmpdir(), 'HaYad-1.7.5-result.json');
 function log(msg){ try{fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`, 'utf8');}catch{} }
@@ -69,6 +70,19 @@ async function main(){
   const archive=path.join(payload,'local-library','library.zip');
   for(const p of [asarDir,patcher,sevenZip,sqliteBundled,archive]) if(!fs.existsSync(p)) fail(3,'Installer payload is incomplete',p);
   const asar=require(asarDir);
+  if(selftest){
+    cp.execFileSync(sevenZip,['i'],{windowsHide:true,stdio:'pipe',timeout:30000});
+    cp.execFileSync(sqliteBundled,['-version'],{windowsHide:true,stdio:'pipe',timeout:30000});
+    const tmp=path.join(os.tmpdir(),'HaYad175SelfTest');rm(tmp);ensureDir(tmp);
+    fs.writeFileSync(path.join(tmp,'hello.txt'),'ok','utf8');
+    const testAsar=path.join(os.tmpdir(),'HaYad175SelfTest.asar');try{fs.rmSync(testAsar,{force:true});}catch{}
+    await asar.createPackage(tmp,testAsar);
+    const out=path.join(os.tmpdir(),'HaYad175SelfTestOut');rm(out);ensureDir(out);await Promise.resolve(asar.extractAll(testAsar,out));
+    if(fs.readFileSync(path.join(out,'hello.txt'),'utf8')!=='ok') fail(4,'ASAR self-test failed');
+    rm(tmp);rm(out);try{fs.rmSync(testAsar,{force:true});}catch{}
+    log('SELFTEST OK: Node + ASAR + 7-Zip + SQLite');
+    return;
+  }
 
   let target=null;
   for(const p of listCandidates()) if(fs.existsSync(path.join(p,'resources','app.asar'))){target=p;break;}
