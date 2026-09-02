@@ -28,7 +28,10 @@ jobs:
       - name: Run updater self-test and print internal log
         shell: pwsh
         run: |
-          & diag/payload/asar-tool/node.exe diag/payload/apply-1.7.5.js diag/payload --selftest --quiet
+          $payload=(Resolve-Path diag/payload).Path
+          $node=(Resolve-Path diag/payload/asar-tool/node.exe).Path
+          $script=(Resolve-Path diag/payload/apply-1.7.5.js).Path
+          & $node $script $payload --selftest --quiet
           $code=$LASTEXITCODE
           Write-Host "SELFTEST EXIT=$code"
           Write-Host '----- install log -----'
