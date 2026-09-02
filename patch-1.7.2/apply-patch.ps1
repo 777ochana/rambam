@@ -51,9 +51,16 @@ if(-not (Test-Path $original)){
 $appDir=Join-Path $res 'app'
 if(Test-Path $appDir){Remove-Item $appDir -Recurse -Force}
 Copy-Item (Join-Path $Payload 'app') $appDir -Recurse -Force
+
 $libDir=Join-Path $res 'local-library'
 if(Test-Path $libDir){Remove-Item $libDir -Recurse -Force}
-Copy-Item (Join-Path $Payload 'local-library') $libDir -Recurse -Force
+New-Item -ItemType Directory -Force $libDir | Out-Null
+Copy-Item (Join-Path $Payload 'local-library\sqlite3.exe') (Join-Path $libDir 'sqlite3.exe') -Force
+$archive=Join-Path $Payload 'local-library\library.zip'
+if(-not (Test-Path $archive)){throw 'ארכיון המאגר המקומי חסר'}
+& tar.exe -xf $archive -C $libDir
+if($LASTEXITCODE -ne 0){throw 'פריסת המאגר המקומי נכשלה'}
+if(-not (Test-Path (Join-Path $libDir 'torah-library.sqlite'))){throw 'מסד הנתונים לא נמצא לאחר הפריסה'}
 
 $marker=@{
  version='1.7.2';
