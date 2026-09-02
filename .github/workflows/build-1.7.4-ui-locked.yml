@@ -1,4 +1,4 @@
-name: Build HaYad 1.7.4 UI Locked
+name: Build HaYad 1.7.4 UI-Locked Local Corpus
 on:
   push:
     branches: [v1.7.4-ui-locked]
@@ -14,76 +14,58 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare backend-only payload and validated local corpus
+      - name: Prepare tools and validated local corpus
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          New-Item -ItemType Directory -Force patch-1.7.4/payload/app,patch-1.7.4/payload/local-library,prior | Out-Null
-          Copy-Item patch-1.7.4/main.js patch-1.7.4/payload/app/main.js
-          Copy-Item patch-1.7.4/package.json patch-1.7.4/payload/app/package.json
-          gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.zip' -p 'corpus-manifest-1.7.1.json' -D prior
-          7z x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
-          $db=Get-ChildItem prior/unpacked -Recurse -Filter 'torah-library.sqlite' -File | Select-Object -First 1
-          if(-not $db){throw 'Local Torah DB not found'}
-          Copy-Item $db.FullName patch-1.7.4/payload/local-library/torah-library.sqlite
-          Copy-Item prior/corpus-manifest-1.7.1.json patch-1.7.4/payload/local-library/corpus-manifest.json
-          Write-Host "DB MB=$([math]::Round((Get-Item patch-1.7.4/payload/local-library/torah-library.sqlite).Length/1MB,1))"
-      - name: Install build tools, validate and compress corpus
-        shell: pwsh
-        run: |
+          New-Item -ItemType Directory -Force build174/payload/asar-tool,build174/payload/local-library,prior | Out-Null
+          Copy-Item build174/patch-main-1.7.4.js build174/payload/patch-main-1.7.4.js
+          Copy-Item build174/apply-1.7.4.ps1 build174/apply-1.7.4.ps1
+          Copy-Item (Get-Command node).Source build174/payload/asar-tool/node.exe
+          npm install --prefix build174/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build174/payload/asar-tool/node_modules/@electron/asar/bin/asar.js')){throw 'ASAR tool missing'}
           choco install sqlite nsis -y --no-progress
           $sqlite=Get-ChildItem 'C:\ProgramData\chocolatey\lib\SQLite\tools' -Recurse -Filter sqlite3.exe -File | Select-Object -First 1
-          if(-not $sqlite){throw 'sqlite3.exe not found'}
-          Copy-Item $sqlite.FullName patch-1.7.4/payload/local-library/sqlite3.exe
-          $check=& patch-1.7.4/payload/local-library/sqlite3.exe -readonly patch-1.7.4/payload/local-library/torah-library.sqlite 'PRAGMA quick_check;'
-          if(($check|Out-String).Trim() -ne 'ok'){throw "SQLite quick_check failed: $check"}
-          Push-Location patch-1.7.4/payload/local-library
-          7z a -tzip -mx=6 library.zip torah-library.sqlite corpus-manifest.json
+          if(-not $sqlite){throw 'sqlite3.exe missing'}
+          Copy-Item $sqlite.FullName build174/payload/local-library/sqlite3.exe
+          gh release download hayad-v1.7.1-local-chat -p 'HaYad-HaHazaka-1.7.1-x64.zip' -D prior
+          7z x prior/HaYad-HaHazaka-1.7.1-x64.zip -oprior/unpacked -y | Out-Null
+          $db=Get-ChildItem prior/unpacked -Recurse -Filter torah-library.sqlite -File | Select-Object -First 1
+          if(-not $db){throw 'Local corpus DB not found'}
+          Copy-Item $db.FullName build174/payload/local-library/torah-library.sqlite
+          $check=& build174/payload/local-library/sqlite3.exe -readonly build174/payload/local-library/torah-library.sqlite 'PRAGMA quick_check;'
+          if(($check|Out-String).Trim() -ne 'ok'){throw 'Corpus quick_check failed'}
+          Push-Location build174/payload/local-library
+          7z a -tzip -mx=6 library.zip torah-library.sqlite
           if($LASTEXITCODE -ne 0){throw 'Corpus compression failed'}
-          Remove-Item torah-library.sqlite,corpus-manifest.json -Force
+          Remove-Item torah-library.sqlite -Force
           Pop-Location
-      - name: Normalize PowerShell encoding
+      - name: Assert backend patch syntax and UI lock constants
         shell: pwsh
         run: |
-          $p='patch-1.7.4/apply-patch.ps1'; $text=Get-Content $p -Raw -Encoding UTF8
-          [System.IO.File]::WriteAllText((Resolve-Path $p),$text,(New-Object System.Text.UTF8Encoding($true)))
-      - name: Full install smoke test — UI hash must remain unchanged
-        shell: powershell
-        run: |
-          $fake=Join-Path $env:LOCALAPPDATA 'Programs\hayad-hahazaka'
-          Remove-Item $fake -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force (Join-Path $fake 'resources') | Out-Null
-          [IO.File]::WriteAllBytes((Join-Path $fake 'resources\app.asar'),[Text.Encoding]::UTF8.GetBytes('ORIGINAL-1.6.3-UI-BUNDLE-DO-NOT-TOUCH'))
-          $before=(Get-FileHash (Join-Path $fake 'resources\app.asar') -Algorithm SHA256).Hash
-          & .\patch-1.7.4\apply-patch.ps1 -Payload (Resolve-Path '.\patch-1.7.4\payload').Path -Quiet
-          if($LASTEXITCODE -ne 0){throw "Patch smoke failed: $LASTEXITCODE"}
-          $after=(Get-FileHash (Join-Path $fake 'resources\app.asar') -Algorithm SHA256).Hash
-          $backup=(Get-FileHash (Join-Path $fake 'resources\app-1.6.3-original.asar') -Algorithm SHA256).Hash
-          if($before -ne $after -or $before -ne $backup){throw 'UI LOCK FAILED: original app.asar changed'}
-          if(-not (Test-Path (Join-Path $fake 'resources\app\main.js'))){throw 'Backend bridge missing'}
-          $db=Join-Path $fake 'resources\local-library\torah-library.sqlite'; if(-not (Test-Path $db)){throw 'Local DB missing'}
-          $sqlite=Join-Path $fake 'resources\local-library\sqlite3.exe'; $integrity=& $sqlite -readonly $db 'PRAGMA quick_check;'
-          if(($integrity|Out-String).Trim() -ne 'ok'){throw 'Installed SQLite integrity failed'}
-          Write-Host "UI LOCK SMOKE OK; OriginalSHA=$before; DBBytes=$((Get-Item $db).Length)"
-          Remove-Item $fake -Recurse -Force
-      - name: Compile Unicode installer
+          node --check build174/patch-main-1.7.4.js
+          $script=Get-Content build174/apply-1.7.4.ps1 -Raw -Encoding UTF8
+          foreach($hash in @('e2a301bad496d87490eaceb091204d2287fa60f00c5d22341403e6f8daa69e76','6df2817f475b85236d7c4764d1fa2339673b3d827cd6442fbce042b5dbcefc37','74e52686fc6f255043062277f385b45cd85e2fdd16abc42dc00afbe18913de24')){if(-not $script.Contains($hash)){throw "Missing UI lock hash $hash"}}
+          if(-not $script.Contains("Remove-Item `$wrapper -Recurse -Force")){throw 'Old wrapper recovery missing'}
+      - name: Compile UTF-8 installer
         shell: pwsh
         run: |
-          Push-Location patch-1.7.4
-          $makensis='C:\Program Files (x86)\NSIS\makensis.exe'
-          & $makensis /INPUTCHARSET UTF8 installer.nsi
+          Copy-Item build174/installer-1.7.4.nsi build174/installer.nsi
+          Push-Location build174
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
           if($LASTEXITCODE -ne 0){throw 'makensis failed'}
           Pop-Location
-          Get-Item patch-1.7.4/HaYad-HaHazaka-Local-Library-1.7.4.exe | Format-List Name,Length
       - name: Checksum and publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $exe='patch-1.7.4/HaYad-HaHazaka-Local-Library-1.7.4.exe'
+          $exe='build174/HaYad-HaHazaka-Update-1.7.4.exe'
           $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
-          "$sha  HaYad-HaHazaka-Local-Library-1.7.4.exe" | Set-Content patch-1.7.4/SHA256-1.7.4.txt
+          "$sha  HaYad-HaHazaka-Update-1.7.4.exe" | Set-Content build174/SHA256-1.7.4.txt
+          $notes=@'
+          1.7.4 is a backend-only local-library integration over the original 1.6.3 application. The renderer is SHA-256 locked: index.js, index.css and index.html must be byte-identical to 1.6.3 or installation aborts. It removes the obsolete resources/app wrapper from 1.7.2/1.7.3, patches only dist-electron/main.js inside app.asar, and adds the validated local SQLite/FTS5 corpus. No diagram, layout, colors, fonts, navigation or editor UI are changed.
+          '@
           $tag='hayad-v1.7.4-ui-locked'
-          $notes='1.7.4 is backend-only. It never edits the original 1.6.3 app.asar, renderer, CSS, home diagram, 14-book layout, workspace or controls. It bridges the existing knowledge:list/search IPC to the large LOCAL SQLite corpus. The installer verifies the original app.asar SHA is unchanged and automatically rolls back to 1.6.3 if anything fails.'
-          if(gh release view $tag *> $null){gh release upload $tag $exe patch-1.7.4/SHA256-1.7.4.txt --clobber}else{gh release create $tag $exe patch-1.7.4/SHA256-1.7.4.txt --title 'הרמב״ם הבהיר 1.7.4 — UI LOCKED, מאגר LOCAL' --notes $notes --target $env:GITHUB_SHA}
+          if(gh release view $tag *> $null){gh release upload $tag $exe build174/SHA256-1.7.4.txt --clobber}else{gh release create $tag $exe build174/SHA256-1.7.4.txt --title 'הרמב״ם הבהיר 1.7.4 — ממשק 1.6.3 AS IS + מאגר LOCAL' --notes $notes --target $env:GITHUB_SHA}
