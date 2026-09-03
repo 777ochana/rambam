@@ -1,0 +1,83 @@
+name: Build HaYad 1.8.3 Direct Extract Repair
+on:
+  push:
+    branches: [v1.8.1-core-upgrade-fix]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.8.3-direct-repair
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare 1.8.3 payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build183/payload/asar-tool | Out-Null
+          Copy-Item build183/apply-1.8.3.js build183/payload/apply-1.8.3.cjs
+          Copy-Item build176/patch-main-1.7.6.js build183/payload/patch-main-1.7.6.cjs
+          Copy-Item build181/patch-core-1.8.1.js build183/payload/patch-core-1.8.1.cjs
+          Copy-Item build181/core-library-ui.js build183/payload/core-library-ui.js
+          Copy-Item (Get-Command node).Source build183/payload/asar-tool/node.exe
+          npm install --prefix build183/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build183/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
+          choco install nsis -y --no-progress
+
+      - name: Validate direct-extract repair engine
+        shell: pwsh
+        run: |
+          node --check build183/payload/apply-1.8.3.cjs
+          node --check build183/payload/patch-main-1.7.6.cjs
+          node --check build183/payload/patch-core-1.8.1.cjs
+          node --check build183/payload/core-library-ui.js
+          New-Item -ItemType Directory -Force build183/fixture | Out-Null
+          $fixture=(Get-Content build181/fixture-main-1.6.3.js -Raw -Encoding UTF8).Replace("`r`n","`n")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'build183/fixture/main.js'),$fixture,(New-Object System.Text.UTF8Encoding($false)))
+          Copy-Item build181/fixture-package.json build183/fixture/package.json
+          node build183/payload/patch-main-1.7.6.cjs build183/fixture/main.js build183/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw 'fixture 1.6.3 -> 1.7.6 failed'}
+          node build183/payload/patch-core-1.8.1.cjs build183/fixture/main.js build183/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw 'fixture 1.7.6 -> 1.8.1 failed'}
+          node --check build183/fixture/main.js
+          $m=Get-Content build183/fixture/main.js -Raw -Encoding UTF8
+          if(-not $m.Contains('LOCAL_CORE_181')){throw 'LOCAL_CORE_181 missing'}
+          if(-not $m.Contains('core-library-ui.js')){throw 'external UI hook missing'}
+          $payload=(Resolve-Path build183/payload).Path
+          $node=(Resolve-Path build183/payload/asar-tool/node.exe).Path
+          $apply=(Resolve-Path build183/payload/apply-1.8.3.cjs).Path
+          & $node $apply $payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){throw "1.8.3 self-test failed: $LASTEXITCODE"}
+
+      - name: Compile 1.8.3 installer
+        shell: pwsh
+        run: |
+          Copy-Item build183/installer-1.8.3.nsi build183/installer.nsi
+          Push-Location build183
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build183/HaYad-HaHazaka-Repair-1.8.3.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Repair-1.8.3.exe" | Set-Content build183/SHA256-1.8.3.txt
+          $tag='hayad-v1.8.3-direct-extract-repair'
+          $notes=@'
+          1.8.3 removes the fs.cpSync deployment stage that caused code 20 on the affected machine. A verified ASAR base is extracted directly into resources/app, the exact approved 1.6.3 renderer hashes are verified there before and after backend patching, and only then is the external Core Library UI installed. app.asar remains untouched as fallback; resources/app is rolled back on any failure. Failure JSON now includes the exact file/hash mismatch in ASCII-safe diagnostics.
+          '@
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release upload $tag $exe build183/SHA256-1.8.3.txt --clobber
+          } else {
+            gh release create $tag $exe build183/SHA256-1.8.3.txt --title 'הרמב״ם הבהיר 1.8.3 — Direct Extract Repair' --notes $notes --target $env:GITHUB_SHA
+          }
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
