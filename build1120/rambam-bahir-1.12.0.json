@@ -1,0 +1,12 @@
+{
+  "version": "1.12.0",
+  "mode": "word-style-navigation",
+  "base": "1.11.1-preserve-tools",
+  "home": "unchanged",
+  "originalWorkspace": "preserved",
+  "originalWordTools": "preserved-and-polished",
+  "navigation": "word-style-right-pane",
+  "hebrewBooksUi": "removed",
+  "localLibrary": "preserved",
+  "installedAt": "runtime"
+}
