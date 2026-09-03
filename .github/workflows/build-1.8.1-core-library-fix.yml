@@ -21,7 +21,8 @@ jobs:
           New-Item -ItemType Directory -Force build181/payload/asar-tool | Out-Null
           Copy-Item build181/apply-1.8.1.js build181/payload/apply-1.8.1.cjs
           Copy-Item build176/patch-main-1.7.6.js build181/payload/patch-main-1.7.6.cjs
-          Copy-Item build180/patch-core-1.8.0.js build181/payload/patch-core-1.8.0.cjs
+          Copy-Item build181/patch-core-1.8.1.js build181/payload/patch-core-1.8.1.cjs
+          Copy-Item build181/core-library-ui.js build181/payload/core-library-ui.js
           Copy-Item (Get-Command node).Source build181/payload/asar-tool/node.exe
           npm install --prefix build181/payload/asar-tool @electron/asar@3.4.1 --omit=dev
           if(-not (Test-Path 'build181/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
@@ -32,7 +33,8 @@ jobs:
         run: |
           node --check build181/payload/apply-1.8.1.cjs
           node --check build181/payload/patch-main-1.7.6.cjs
-          node --check build181/payload/patch-core-1.8.0.cjs
+          node --check build181/payload/patch-core-1.8.1.cjs
+          node --check build181/payload/core-library-ui.js
           New-Item -ItemType Directory -Force build181/fixture | Out-Null
           $fixture=(Get-Content build181/fixture-main-1.6.3.js -Raw -Encoding UTF8).Replace("`r`n","`n")
           [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'build181/fixture/main.js'),$fixture,(New-Object System.Text.UTF8Encoding($false)))
@@ -41,12 +43,16 @@ jobs:
           if($LASTEXITCODE -ne 0){throw '1.6.3 -> 1.7.6 fixture patch failed'}
           $stage176=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
           if(-not $stage176.Contains('LOCAL_CORPUS_176')){throw 'LOCAL_CORPUS_176 missing after real fixture patch'}
-          node build181/payload/patch-core-1.8.0.cjs build181/fixture/main.js build181/fixture/package.json
-          if($LASTEXITCODE -ne 0){throw '1.7.6 -> Core Library fixture patch failed'}
+          node build181/payload/patch-core-1.8.1.cjs build181/fixture/main.js build181/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw '1.7.6 -> Core Library 1.8.1 fixture patch failed'}
           node --check build181/fixture/main.js
-          $stage180=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
-          if(-not $stage180.Contains('LOCAL_CORE_180')){throw 'LOCAL_CORE_180 missing after real fixture patch'}
-          if(-not $stage180.Contains('rb-core-bar')){throw 'Core workspace UI injection missing from patched backend'}
+          $stage181=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
+          if(-not $stage181.Contains('LOCAL_CORE_181')){throw 'LOCAL_CORE_181 missing after real fixture patch'}
+          if(-not $stage181.Contains('core-library-ui.js')){throw 'External Core UI loader missing from patched backend'}
+          $ui=Get-Content build181/payload/core-library-ui.js -Raw -Encoding UTF8
+          foreach($marker in @('__RB_CORE_181__','rb-core181-bar','ספריית הספרים','מצא מקור','שאל את המאגר')){
+            if(-not $ui.Contains($marker)){throw "Core UI marker missing: $marker"}
+          }
           $payload=(Resolve-Path build181/payload).Path
           $node=(Resolve-Path build181/payload/asar-tool/node.exe).Path
           $apply=(Resolve-Path build181/payload/apply-1.8.1.cjs).Path
@@ -72,12 +78,12 @@ jobs:
           "$sha  HaYad-HaHazaka-Update-1.8.1.exe" | Set-Content build181/SHA256-1.8.1.txt
           $tag='hayad-v1.8.1-core-library-installer-fix'
           $notes=@'
-          1.8.1 fixes the 1.8.0 installer failure. Installer and patch engines are forced to CommonJS (.cjs), removing Node package-mode ambiguity. The installer prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation executes the actual patch chain against an LF-normalized exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
+          1.8.1 fixes the 1.8.0 code-30 installer failure. The old nested String.raw Core generator is removed. The Core Library UI is now a standalone external resources/core-library/core-library-ui.js file, while the approved 1.6.3 renderer remains byte-identical. Installer and patch engines are forced to CommonJS (.cjs). The installer prefers the already-installed 1.7.6 backend and applies only LOCAL_CORE_181; if needed it can reconstruct from pristine 1.6.3. Build validation executes the real 1.6.3 -> 1.7.6 -> Core 1.8.1 patch chain and syntax-checks both the resulting backend and the standalone Core UI.
           '@
           gh release view $tag --json tagName *> $null
           if($LASTEXITCODE -eq 0){
             gh release upload $tag $exe build181/SHA256-1.8.1.txt --clobber
           } else {
-            gh release create $tag $exe build181/SHA256-1.8.1.txt --title 'הרמב״ם הבהיר 1.8.1 — תיקון התקנת Core Library' --notes $notes --target $env:GITHUB_SHA
+            gh release create $tag $exe build181/SHA256-1.8.1.txt --title 'הרמב״ם הבהיר 1.8.1 — Core Library מתוקן' --notes $notes --target $env:GITHUB_SHA
           }
           if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
