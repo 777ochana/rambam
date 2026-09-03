@@ -1,0 +1,55 @@
+name: Build HaYad 1.12.0 Word Navigation
+on:
+  push:
+    branches: [v1.12.0-word-navigation]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.12.0-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build1120/payload | Out-Null
+          $base = Get-Content build1111/core-library-ui-1.11.1.js -Raw -Encoding UTF8
+          $overlay = Get-Content build1120/word-navigation-overlay-1.12.0.js -Raw -Encoding UTF8
+          ($base + "`r`n" + $overlay) | Set-Content build1120/payload/core-library-ui.js -Encoding UTF8
+          Copy-Item build1120/rambam-bahir-1.12.0.json build1120/payload/rambam-bahir-1.12.0.json
+          choco install nsis -y --no-progress
+      - name: Validate Word-style navigation update
+        shell: pwsh
+        run: |
+          node --check build1120/payload/core-library-ui.js
+          $ui=Get-Content build1120/payload/core-library-ui.js -Raw -Encoding UTF8
+          foreach($x in @('__RB_SIDEBAR_1111__','__RB_WORD_NAV_1120__','rb1120-wordnav','חפש בכותרות','כותרות','המיקום הנוכחי','removeHebrewBooks','blockHebrewBooksLinks','שאל את המאגר','העלה ספר למאגר','OpenAI API Key אישי')){if(-not $ui.Contains($x)){throw "Missing requirement: $x"}}
+          foreach($x in @('בדוק מקור','הפק Word','תצוגה מקדימה','נקד','שמור','מאסטר')){if(-not $ui.Contains($x)){throw "Original tool support missing: $x"}}
+          if($ui.Contains('body.innerHTML')){throw 'Original DOM replacement is forbidden'}
+          $nsi=Get-Content build1120/installer-1.12.0.nsi -Raw -Encoding UTF8
+          if($nsi.Contains('RMDir /r "$TARGET\resources\app"')){throw 'Installer must not remove original app'}
+          if($nsi.Contains('File /r "payload\asar-tool')){throw 'Installer must not rebuild app.asar'}
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Push-Location build1120
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer-1.12.0.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build1120/HaYad-HaHazaka-Update-1.12.0.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.12.0.exe" | Set-Content build1120/SHA256-1.12.0.txt
+          $tag='hayad-v1.12.0-word-navigation'
+          $notes='1.12.0 keeps the original workspace and tools, but replaces the mirrored dropdown navigation with a clean Word-style navigation pane: searchable headings, current-location summary, hierarchical book/laws/chapter/halakha outline, current-item highlighting and previous/next navigation. The research sidebar is visually simplified, the existing editor toolbar is polished toward a Word ribbon look, and all HebrewBooks UI entry points and HebrewBooks links are hidden/blocked. The local corpus, library, grounded chat and encrypted per-user API settings remain unchanged.'
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){gh release upload $tag $exe build1120/SHA256-1.12.0.txt --clobber} else {gh release create $tag $exe build1120/SHA256-1.12.0.txt --title 'הרמב״ם הבהיר 1.12.0 — ניווט בסגנון Word' --notes $notes --target $env:GITHUB_SHA}
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
