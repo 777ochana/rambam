@@ -19,10 +19,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build181/payload/asar-tool | Out-Null
-          '{"type":"commonjs","private":true}' | Set-Content build181/payload/package.json -Encoding utf8NoBOM
-          Copy-Item build181/apply-1.8.1.js build181/payload/apply-1.8.1.js
-          Copy-Item build176/patch-main-1.7.6.js build181/payload/patch-main-1.7.6.js
-          Copy-Item build180/patch-core-1.8.0.js build181/payload/patch-core-1.8.0.js
+          Copy-Item build181/apply-1.8.1.js build181/payload/apply-1.8.1.cjs
+          Copy-Item build176/patch-main-1.7.6.js build181/payload/patch-main-1.7.6.cjs
+          Copy-Item build180/patch-core-1.8.0.js build181/payload/patch-core-1.8.0.cjs
           Copy-Item (Get-Command node).Source build181/payload/asar-tool/node.exe
           npm install --prefix build181/payload/asar-tool @electron/asar@3.4.1 --omit=dev
           if(-not (Test-Path 'build181/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
@@ -31,17 +30,17 @@ jobs:
       - name: Validate scripts and execute real patch chain fixture
         shell: pwsh
         run: |
-          node --check build181/apply-1.8.1.js
-          node --check build176/patch-main-1.7.6.js
-          node --check build180/patch-core-1.8.0.js
+          node --check build181/payload/apply-1.8.1.cjs
+          node --check build181/payload/patch-main-1.7.6.cjs
+          node --check build181/payload/patch-core-1.8.0.cjs
           New-Item -ItemType Directory -Force build181/fixture | Out-Null
           Copy-Item build181/fixture-main-1.6.3.js build181/fixture/main.js
           Copy-Item build181/fixture-package.json build181/fixture/package.json
-          node build176/patch-main-1.7.6.js build181/fixture/main.js build181/fixture/package.json
+          node build181/payload/patch-main-1.7.6.cjs build181/fixture/main.js build181/fixture/package.json
           if($LASTEXITCODE -ne 0){throw '1.6.3 -> 1.7.6 fixture patch failed'}
           $stage176=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
           if(-not $stage176.Contains('LOCAL_CORPUS_176')){throw 'LOCAL_CORPUS_176 missing after real fixture patch'}
-          node build180/patch-core-1.8.0.js build181/fixture/main.js build181/fixture/package.json
+          node build181/payload/patch-core-1.8.0.cjs build181/fixture/main.js build181/fixture/package.json
           if($LASTEXITCODE -ne 0){throw '1.7.6 -> Core Library fixture patch failed'}
           node --check build181/fixture/main.js
           $stage180=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
@@ -49,7 +48,7 @@ jobs:
           if(-not $stage180.Contains('rb-core-bar')){throw 'Core workspace UI injection missing from patched backend'}
           $payload=(Resolve-Path build181/payload).Path
           $node=(Resolve-Path build181/payload/asar-tool/node.exe).Path
-          $apply=(Resolve-Path build181/payload/apply-1.8.1.js).Path
+          $apply=(Resolve-Path build181/payload/apply-1.8.1.cjs).Path
           & $node $apply $payload --selftest --quiet
           if($LASTEXITCODE -ne 0){throw "1.8.1 installer self-test failed: $LASTEXITCODE"}
 
@@ -72,7 +71,7 @@ jobs:
           "$sha  HaYad-HaHazaka-Update-1.8.1.exe" | Set-Content build181/SHA256-1.8.1.txt
           $tag='hayad-v1.8.1-core-library-installer-fix'
           $notes=@'
-          1.8.1 fixes the 1.8.0 installer failure. It prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation now executes the actual patch chain against an exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
+          1.8.1 fixes the 1.8.0 installer failure. Installer and patch engines are forced to CommonJS (.cjs), removing Node package-mode ambiguity. The installer prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation executes the actual patch chain against an exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
           '@
           gh release view $tag --json tagName *> $null
           if($LASTEXITCODE -eq 0){
