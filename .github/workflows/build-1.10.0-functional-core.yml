@@ -43,6 +43,8 @@ jobs:
           New-Item -ItemType Directory -Force build110/fixture | Out-Null
           Copy-Item build181/fixture-main-1.6.3.js build110/fixture/main.js
           Copy-Item build181/fixture-package.json build110/fixture/package.json
+          $fixture=(Get-Content build110/fixture/main.js -Raw -Encoding UTF8).Replace("`r`n","`n")
+          [System.IO.File]::WriteAllText((Resolve-Path build110/fixture/main.js),$fixture,(New-Object System.Text.UTF8Encoding($false)))
           node build110/payload/patch-main-1.7.6.cjs build110/fixture/main.js build110/fixture/package.json
           node build110/payload/patch-core-1.8.1.cjs build110/fixture/main.js build110/fixture/package.json
           node build110/payload/patch-visual-1.9.0.cjs build110/fixture/main.js build110/fixture/package.json
