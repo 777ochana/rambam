@@ -1,0 +1,83 @@
+name: Build HaYad 1.8.1 Core Library Fix
+on:
+  push:
+    branches: [v1.8.0-core-local-library]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.8.1-core-library-fix
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare compact installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build181/payload/asar-tool | Out-Null
+          '{"type":"commonjs","private":true}' | Set-Content build181/payload/package.json -Encoding utf8NoBOM
+          Copy-Item build181/apply-1.8.1.js build181/payload/apply-1.8.1.js
+          Copy-Item build176/patch-main-1.7.6.js build181/payload/patch-main-1.7.6.js
+          Copy-Item build180/patch-core-1.8.0.js build181/payload/patch-core-1.8.0.js
+          Copy-Item (Get-Command node).Source build181/payload/asar-tool/node.exe
+          npm install --prefix build181/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build181/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
+          choco install nsis -y --no-progress
+
+      - name: Validate scripts and execute real patch chain fixture
+        shell: pwsh
+        run: |
+          node --check build181/apply-1.8.1.js
+          node --check build176/patch-main-1.7.6.js
+          node --check build180/patch-core-1.8.0.js
+          New-Item -ItemType Directory -Force build181/fixture | Out-Null
+          Copy-Item build181/fixture-main-1.6.3.js build181/fixture/main.js
+          Copy-Item build181/fixture-package.json build181/fixture/package.json
+          node build176/patch-main-1.7.6.js build181/fixture/main.js build181/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw '1.6.3 -> 1.7.6 fixture patch failed'}
+          $stage176=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
+          if(-not $stage176.Contains('LOCAL_CORPUS_176')){throw 'LOCAL_CORPUS_176 missing after real fixture patch'}
+          node build180/patch-core-1.8.0.js build181/fixture/main.js build181/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw '1.7.6 -> Core Library fixture patch failed'}
+          node --check build181/fixture/main.js
+          $stage180=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
+          if(-not $stage180.Contains('LOCAL_CORE_180')){throw 'LOCAL_CORE_180 missing after real fixture patch'}
+          if(-not $stage180.Contains('rb-core-bar')){throw 'Core workspace UI injection missing from patched backend'}
+          $payload=(Resolve-Path build181/payload).Path
+          $node=(Resolve-Path build181/payload/asar-tool/node.exe).Path
+          $apply=(Resolve-Path build181/payload/apply-1.8.1.js).Path
+          & $node $apply $payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){throw "1.8.1 installer self-test failed: $LASTEXITCODE"}
+
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Copy-Item build181/installer-1.8.1.nsi build181/installer.nsi
+          Push-Location build181
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build181/HaYad-HaHazaka-Update-1.8.1.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.8.1.exe" | Set-Content build181/SHA256-1.8.1.txt
+          $tag='hayad-v1.8.1-core-library-installer-fix'
+          $notes=@'
+          1.8.1 fixes the 1.8.0 installer failure. It prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation now executes the actual patch chain against an exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
+          '@
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release upload $tag $exe build181/SHA256-1.8.1.txt --clobber
+          } else {
+            gh release create $tag $exe build181/SHA256-1.8.1.txt --title 'הרמב״ם הבהיר 1.8.1 — תיקון התקנת Core Library' --notes $notes --target $env:GITHUB_SHA
+          }
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
