@@ -19,39 +19,45 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build181/payload/asar-tool | Out-Null
-          Copy-Item build181/apply-1.8.1.js build181/payload/apply-1.8.1.cjs
+          Copy-Item build181/apply-1.8.1b.js build181/payload/apply-1.8.1b.cjs
           Copy-Item build176/patch-main-1.7.6.js build181/payload/patch-main-1.7.6.cjs
-          Copy-Item build180/patch-core-1.8.0.js build181/payload/patch-core-1.8.0.cjs
+          Copy-Item build181/patch-core-1.8.1.js build181/payload/patch-core-1.8.1.cjs
+          Copy-Item build181/core-library-ui.js build181/payload/core-library-ui.js
           Copy-Item (Get-Command node).Source build181/payload/asar-tool/node.exe
           npm install --prefix build181/payload/asar-tool @electron/asar@3.4.1 --omit=dev
           if(-not (Test-Path 'build181/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
           choco install nsis -y --no-progress
 
-      - name: Validate scripts and execute real patch chain fixture
+      - name: Validate real patch chain and external Core UI
         shell: pwsh
         run: |
-          node --check build181/payload/apply-1.8.1.cjs
+          node --check build181/payload/apply-1.8.1b.cjs
           node --check build181/payload/patch-main-1.7.6.cjs
-          node --check build181/payload/patch-core-1.8.0.cjs
+          node --check build181/payload/patch-core-1.8.1.cjs
+          node --check build181/payload/core-library-ui.js
           New-Item -ItemType Directory -Force build181/fixture | Out-Null
           $fixture=(Get-Content build181/fixture-main-1.6.3.js -Raw -Encoding UTF8).Replace("`r`n","`n")
           [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'build181/fixture/main.js'),$fixture,(New-Object System.Text.UTF8Encoding($false)))
           Copy-Item build181/fixture-package.json build181/fixture/package.json
           node build181/payload/patch-main-1.7.6.cjs build181/fixture/main.js build181/fixture/package.json
           if($LASTEXITCODE -ne 0){throw '1.6.3 -> 1.7.6 fixture patch failed'}
-          $stage176=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
-          if(-not $stage176.Contains('LOCAL_CORPUS_176')){throw 'LOCAL_CORPUS_176 missing after real fixture patch'}
-          node build181/payload/patch-core-1.8.0.cjs build181/fixture/main.js build181/fixture/package.json
-          if($LASTEXITCODE -ne 0){throw '1.7.6 -> Core Library fixture patch failed'}
+          node build181/payload/patch-core-1.8.1.cjs build181/fixture/main.js build181/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw '1.7.6 -> 1.8.1 Core fixture patch failed'}
           node --check build181/fixture/main.js
-          $stage180=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
-          if(-not $stage180.Contains('LOCAL_CORE_180')){throw 'LOCAL_CORE_180 missing after real fixture patch'}
-          if(-not $stage180.Contains('rb-core-bar')){throw 'Core workspace UI injection missing from patched backend'}
+          $stage=Get-Content build181/fixture/main.js -Raw -Encoding UTF8
+          if(-not $stage.Contains('LOCAL_CORE_181')){throw 'LOCAL_CORE_181 missing after real fixture patch'}
+          if(-not $stage.Contains('core-library-ui.js')){throw 'External Core UI hook missing from backend'}
+          $ui=Get-Content build181/payload/core-library-ui.js -Raw -Encoding UTF8
+          if(-not $ui.Contains('rb-core-bar')){throw 'Persistent Core bar missing from external UI'}
+          if(-not $ui.Contains('ספריית הספרים')){throw 'Library view missing from external UI'}
           $payload=(Resolve-Path build181/payload).Path
           $node=(Resolve-Path build181/payload/asar-tool/node.exe).Path
-          $apply=(Resolve-Path build181/payload/apply-1.8.1.cjs).Path
+          $apply=(Resolve-Path build181/payload/apply-1.8.1b.cjs).Path
           & $node $apply $payload --selftest --quiet
-          if($LASTEXITCODE -ne 0){throw "1.8.1 installer self-test failed: $LASTEXITCODE"}
+          if($LASTEXITCODE -ne 0){
+            Get-Content "$env:TEMP\HaYad-1.8.1-install.log" -ErrorAction SilentlyContinue
+            throw "1.8.1 installer self-test failed: $LASTEXITCODE"
+          }
 
       - name: Compile Unicode installer
         shell: pwsh
@@ -72,12 +78,12 @@ jobs:
           "$sha  HaYad-HaHazaka-Update-1.8.1.exe" | Set-Content build181/SHA256-1.8.1.txt
           $tag='hayad-v1.8.1-core-library-installer-fix'
           $notes=@'
-          1.8.1 fixes the 1.8.0 installer failure. Installer and patch engines are forced to CommonJS (.cjs), removing Node package-mode ambiguity. The installer prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation executes the actual patch chain against an LF-normalized exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
+          1.8.1 replaces the broken nested-template Core patch with a stable external Core Library UI. The approved 1.6.3 renderer/CSS/index.html remain byte-identical. The installer prefers an installed 1.7.6 backend, applies only the Core backend hook, installs core-library-ui.js as an external resource, and keeps a pre-update app.asar rollback copy. Build validation runs the real 1.6.3 -> 1.7.6 -> 1.8.1 patch chain, node --check on the resulting backend and external UI, plus installer self-test.
           '@
           gh release view $tag --json tagName *> $null
           if($LASTEXITCODE -eq 0){
             gh release upload $tag $exe build181/SHA256-1.8.1.txt --clobber
           } else {
-            gh release create $tag $exe build181/SHA256-1.8.1.txt --title 'הרמב״ם הבהיר 1.8.1 — תיקון התקנת Core Library' --notes $notes --target $env:GITHUB_SHA
+            gh release create $tag $exe build181/SHA256-1.8.1.txt --title 'הרמב״ם הבהיר 1.8.1 — Core Library יציב' --notes $notes --target $env:GITHUB_SHA
           }
           if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
