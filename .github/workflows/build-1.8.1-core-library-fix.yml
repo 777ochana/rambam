@@ -34,7 +34,8 @@ jobs:
           node --check build181/payload/patch-main-1.7.6.cjs
           node --check build181/payload/patch-core-1.8.0.cjs
           New-Item -ItemType Directory -Force build181/fixture | Out-Null
-          Copy-Item build181/fixture-main-1.6.3.js build181/fixture/main.js
+          $fixture=(Get-Content build181/fixture-main-1.6.3.js -Raw -Encoding UTF8).Replace("`r`n","`n")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'build181/fixture/main.js'),$fixture,(New-Object System.Text.UTF8Encoding($false)))
           Copy-Item build181/fixture-package.json build181/fixture/package.json
           node build181/payload/patch-main-1.7.6.cjs build181/fixture/main.js build181/fixture/package.json
           if($LASTEXITCODE -ne 0){throw '1.6.3 -> 1.7.6 fixture patch failed'}
@@ -71,7 +72,7 @@ jobs:
           "$sha  HaYad-HaHazaka-Update-1.8.1.exe" | Set-Content build181/SHA256-1.8.1.txt
           $tag='hayad-v1.8.1-core-library-installer-fix'
           $notes=@'
-          1.8.1 fixes the 1.8.0 installer failure. Installer and patch engines are forced to CommonJS (.cjs), removing Node package-mode ambiguity. The installer prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation executes the actual patch chain against an exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
+          1.8.1 fixes the 1.8.0 installer failure. Installer and patch engines are forced to CommonJS (.cjs), removing Node package-mode ambiguity. The installer prefers the already-installed 1.7.6 backend and applies only the Core Library layer; if only pristine 1.6.3 is available it performs the full 1.6.3 -> 1.7.6 -> Core Library chain. Renderer hashes remain locked to the approved 1.6.3 UI. Build validation executes the actual patch chain against an LF-normalized exact marker fixture and runs node --check on the resulting backend. Installer failures show the detailed JSON error instead of only code 30.
           '@
           gh release view $tag --json tagName *> $null
           if($LASTEXITCODE -eq 0){
