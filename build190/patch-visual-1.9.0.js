@@ -1,0 +1,17 @@
+const fs=require('fs');
+const [,,mainPath,packagePath]=process.argv;
+if(!mainPath||!packagePath)throw new Error('Usage: patch-visual-1.9.0.js <main.js> <package.json>');
+let s=fs.readFileSync(mainPath,'utf8');
+if(!s.includes('LOCAL_CORE_181'))throw new Error('LOCAL_CORE_181 must exist before visual patch');
+if(s.includes('WORKSPACE_VISUAL_190'))throw new Error('WORKSPACE_VISUAL_190 already applied');
+const helperMarker="function coreUiScript181(){try{return _nodeFs.default.readFileSync(coreUiPath181(),'utf8');}catch(error){console.warn('LOCAL_CORE_181 UI file missing',coreUiPath181(),error&&error.message);return '';}}";
+if(!s.includes(helperMarker))throw new Error('Core UI helper marker missing');
+const helpers=helperMarker+"\n// WORKSPACE_VISUAL_190 — visual-only workspace redesign; home screen remains untouched.\nfunction workspaceVisualPath190(){return _nodePath.default.join(process.resourcesPath,'core-library','workspace-visual-1.9.0.js');}\nfunction workspaceVisualScript190(){try{return _nodeFs.default.readFileSync(workspaceVisualPath190(),'utf8');}catch(error){console.warn('WORKSPACE_VISUAL_190 file missing',workspaceVisualPath190(),error&&error.message);return '';}}";
+s=s.replace(helperMarker,helpers);
+const injection="const ui = coreUiScript181();\n    if (ui) window.webContents.executeJavaScript(ui, true).catch(error => console.warn('LOCAL_CORE_181 UI injection failed', error));";
+if(!s.includes(injection))throw new Error('Core UI injection marker missing');
+const enhanced=injection+"\n    const visual190 = workspaceVisualScript190();\n    if (visual190) window.webContents.executeJavaScript(visual190, true).catch(error => console.warn('WORKSPACE_VISUAL_190 injection failed', error));";
+s=s.replace(injection,enhanced);
+fs.writeFileSync(mainPath,s,'utf8');
+const pkg=JSON.parse(fs.readFileSync(packagePath,'utf8'));pkg.version='1.9.0';fs.writeFileSync(packagePath,JSON.stringify(pkg,null,2),'utf8');
+console.log('Applied WORKSPACE_VISUAL_190; renderer/CSS/index.html untouched.');
