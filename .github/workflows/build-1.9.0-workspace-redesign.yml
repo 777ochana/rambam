@@ -1,0 +1,91 @@
+name: Build HaYad 1.9.0 Workspace Redesign
+on:
+  push:
+    branches: [v1.9.0-workspace-redesign]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.9.0-workspace-redesign
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare visual-only payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build190/payload/asar-tool | Out-Null
+          Copy-Item build190/apply-1.9.0.js build190/payload/apply-1.9.0.cjs
+          Copy-Item build176/patch-main-1.7.6.js build190/payload/patch-main-1.7.6.cjs
+          Copy-Item build181/patch-core-1.8.1.js build190/payload/patch-core-1.8.1.cjs
+          Copy-Item build190/patch-visual-1.9.0.js build190/payload/patch-visual-1.9.0.cjs
+          Copy-Item build181/core-library-ui.js build190/payload/core-library-ui.js
+          Copy-Item build190/workspace-visual-1.9.0.js build190/payload/workspace-visual-1.9.0.js
+          Copy-Item (Get-Command node).Source build190/payload/asar-tool/node.exe
+          npm install --prefix build190/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build190/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
+          choco install nsis -y --no-progress
+
+      - name: Validate workspace-only redesign
+        shell: pwsh
+        run: |
+          node --check build190/payload/apply-1.9.0.cjs
+          node --check build190/payload/patch-main-1.7.6.cjs
+          node --check build190/payload/patch-core-1.8.1.cjs
+          node --check build190/payload/patch-visual-1.9.0.cjs
+          node --check build190/payload/core-library-ui.js
+          node --check build190/payload/workspace-visual-1.9.0.js
+          $visual=Get-Content build190/payload/workspace-visual-1.9.0.js -Raw -Encoding UTF8
+          foreach($needle in @('HOME_BOOKS','rb-home-locked-190','rb-workspace-190','מאגר מקומי','שאל את המאגר','מרכז המקורות')){if(-not $visual.Contains($needle)){throw "Missing visual assertion: $needle"}}
+          New-Item -ItemType Directory -Force build190/fixture | Out-Null
+          $fixture=(Get-Content build181/fixture-main-1.6.3.js -Raw -Encoding UTF8).Replace("`r`n","`n")
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'build190/fixture/main.js'),$fixture,(New-Object System.Text.UTF8Encoding($false)))
+          Copy-Item build181/fixture-package.json build190/fixture/package.json
+          node build190/payload/patch-main-1.7.6.cjs build190/fixture/main.js build190/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw 'fixture 1.6.3 -> 1.7.6 failed'}
+          node build190/payload/patch-core-1.8.1.cjs build190/fixture/main.js build190/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw 'fixture 1.7.6 -> Core 1.8.1 failed'}
+          node build190/payload/patch-visual-1.9.0.cjs build190/fixture/main.js build190/fixture/package.json
+          if($LASTEXITCODE -ne 0){throw 'fixture Core -> Workspace Visual 1.9.0 failed'}
+          node --check build190/fixture/main.js
+          $main=Get-Content build190/fixture/main.js -Raw -Encoding UTF8
+          if(-not $main.Contains('WORKSPACE_VISUAL_190')){throw 'WORKSPACE_VISUAL_190 missing'}
+          if(-not $main.Contains('workspace-visual-1.9.0.js')){throw 'Visual external file hook missing'}
+          $payload=(Resolve-Path build190/payload).Path
+          $node=(Resolve-Path build190/payload/asar-tool/node.exe).Path
+          $apply=(Resolve-Path build190/payload/apply-1.9.0.cjs).Path
+          & $node $apply $payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){throw "1.9.0 installer self-test failed: $LASTEXITCODE"}
+
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Copy-Item build190/installer-1.9.0.nsi build190/installer.nsi
+          Push-Location build190
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build190/HaYad-HaHazaka-Update-1.9.0.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.9.0.exe" | Set-Content build190/SHA256-1.9.0.txt
+          $tag='hayad-v1.9.0-workspace-redesign'
+          $notes=@'
+          Visual-only workspace redesign. The 14-book home screen is explicitly excluded from the redesign. The approved 1.6.3 renderer files remain byte-identical. Only an external workspace visual layer is added after entering a book/halakha. Legacy labels such as HebrewBooks and Ask AI are visually relabeled to Local Library and Ask the Library without changing their underlying handlers. The local Torah corpus is promoted visually as a core source layer.
+          '@
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release upload $tag $exe build190/SHA256-1.9.0.txt --clobber
+          } else {
+            gh release create $tag $exe build190/SHA256-1.9.0.txt --title 'הרמב״ם הבהיר 1.9.0 — עיצוב סביבת העבודה' --notes $notes --target $env:GITHUB_SHA
+          }
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
