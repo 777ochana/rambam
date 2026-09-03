@@ -4,55 +4,15 @@ if(!mainPath||!packagePath)throw new Error('Usage: patch-functional-1.10.0.js <m
 let s=fs.readFileSync(mainPath,'utf8');
 if(!s.includes('LOCAL_CORE_181'))throw new Error('LOCAL_CORE_181 must exist first');
 if(s.includes('FUNCTIONAL_CORE_110'))throw new Error('FUNCTIONAL_CORE_110 already applied');
-const marker='function coreSend181(win,rid,ok,data){';
-if(!s.includes(marker))throw new Error('coreSend181 marker missing');
+const marker='function coreSend181(win,rid,ok,data){';if(!s.includes(marker))throw new Error('coreSend181 marker missing');
 const helpers=String.raw`
 // FUNCTIONAL_CORE_110 — grouped local research actions only; renderer/CSS untouched.
-function coreScopeClause110(scope){
-  switch(String(scope||'all')){
-    case 'shas':return " AND s.category IN ('bavli','yerushalmi','mishnah','tosefta')";
-    case 'shulchan':return " AND (s.category='shulchan_arukh' OR s.he_book LIKE '%שולחן ערוך%' OR s.he_book LIKE '%מגן אברהם%' OR s.he_book LIKE '%פרי מגדים%' OR s.he_book LIKE '%באר היטב%' OR s.he_book LIKE '%שערי תשובה%')";
-    case 'tur_tools':return " AND (s.category='tur' OR s.he_book LIKE '%טור%' OR s.he_book LIKE '%בית יוסף%' OR s.he_book LIKE '%דרכי משה%' OR s.he_book LIKE '%פרישה%' OR s.he_book LIKE '%דרישה%')";
-    case 'tanakh_tools':return " AND s.category='tanakh'";
-    case 'rambam_commentaries':return " AND (s.he_book LIKE '%כסף משנה%' OR s.he_book LIKE '%מגיד משנה%' OR s.he_book LIKE '%לחם משנה%' OR s.he_book LIKE '%משנה למלך%' OR s.he_book LIKE '%הגהות מיימוניות%' OR s.he_book LIKE '%מגדל עוז%' OR s.he_book LIKE '%מעשה רקח%' OR s.he_book LIKE '%מרכבת המשנה%')";
-    case 'responsa_rishonim':return " AND (s.category='responsa' OR s.category='rishonim') AND (s.he_book LIKE '%תשובות%' OR s.he_book LIKE '%רשב%א%' OR s.he_book LIKE '%ריב%ש%' OR s.he_book LIKE '%רא%ש%' OR s.he_book LIKE '%רמב%ן%' OR s.he_book LIKE '%ר%ן%')";
-    default:return '';
-  }
-}
-function coreSearch110(query,scope,limit){
-  const raw=String(query||'').slice(0,600),normalized=(0,_core.normalizeHebrew)(raw),started=Date.now();
-  if(!normalized)return{query:raw,scope:scope||'all',results:[],elapsedMs:0};
-  const terms=normalized.split(/\s+/).filter(x=>x.length>1).slice(0,18),attempts=['"'+normalized.replace(/"/g,'')+'"',terms.map(x=>'"'+x.replace(/"/g,'')+'"').join(' AND '),terms.map(x=>'"'+x.replace(/"/g,'')+'"').join(' OR ')],where=coreScopeClause110(scope),max=Math.min(Math.max(Number(limit)||60,1),100);
-  for(const expression of attempts.filter(Boolean)){
-    const sql='SELECT s.id,s.book,s.he_book,s.category,s.ref,s.text,s.seq,bm25(segments_fts) AS rank FROM segments_fts JOIN segments s ON s.id=segments_fts.rowid WHERE segments_fts MATCH '+sqlQuote(expression)+where+' ORDER BY rank LIMIT '+max+';';
-    const rows=runLocalSql(sql);if(rows.length)return{query:raw,scope:scope||'all',results:rows,elapsedMs:Date.now()-started};
-  }
-  return{query:raw,scope:scope||'all',results:[],elapsedMs:Date.now()-started};
-}
-function coreCatalog110(scope,limit){
-  const sc=String(scope||'all'),max=Math.min(Math.max(Number(limit)||500,1),1000);let where='1=1';
-  if(sc==='shas')where="category IN ('bavli','yerushalmi','mishnah','tosefta')";
-  else if(sc==='shulchan')where="category='shulchan_arukh' OR he_title LIKE '%שולחן ערוך%' OR he_title LIKE '%מגן אברהם%' OR he_title LIKE '%פרי מגדים%'";
-  else if(sc==='tur_tools')where="category='tur' OR he_title LIKE '%טור%' OR he_title LIKE '%בית יוסף%' OR he_title LIKE '%דרכי משה%'";
-  else if(sc==='tanakh_tools')where="category='tanakh'";
-  else if(sc==='rambam_commentaries')where="he_title LIKE '%כסף משנה%' OR he_title LIKE '%מגיד משנה%' OR he_title LIKE '%לחם משנה%' OR he_title LIKE '%משנה למלך%' OR he_title LIKE '%הגהות מיימוניות%' OR he_title LIKE '%מגדל עוז%' OR he_title LIKE '%מעשה רקח%' OR he_title LIKE '%מרכבת המשנה%'";
-  else if(sc==='responsa_rishonim')where="(category='responsa' OR category='rishonim') AND (he_title LIKE '%תשובות%' OR he_title LIKE '%רשב%א%' OR he_title LIKE '%ריב%ש%' OR he_title LIKE '%רא%ש%')";
-  return runLocalSql('SELECT title,he_title,category,license,segments FROM books WHERE '+where+' ORDER BY COALESCE(NULLIF(he_title,\'\'),title) COLLATE NOCASE LIMIT '+max+';');
-}
-function coreHandleNavigation110(win,event,url){
-  if(!String(url||'').startsWith('rambam-core110://'))return false;event.preventDefault();let rid='';
-  try{const u=new URL(url);rid=u.searchParams.get('rid')||'';const action=u.hostname||u.pathname.replace(/^\//,'');let data;
-    if(action==='search')data=coreSearch110(u.searchParams.get('q')||'',u.searchParams.get('scope')||'all',Number(u.searchParams.get('limit')||60));
-    else if(action==='catalog')data=coreCatalog110(u.searchParams.get('scope')||'all',Number(u.searchParams.get('limit')||500));
-    else if(action==='stats')data=coreStats181();
-    else if(action==='context')data=coreContext181(u.searchParams.get('id')||'',Number(u.searchParams.get('radius')||3));
-    else throw new Error('Unknown 1.10 action: '+action);
-    coreSend181(win,rid,true,data);
-  }catch(error){coreSend181(win,rid,false,{message:String(error&&error.message||error)});}return true;
-}
-_electron.app.on('browser-window-created',(_event,window)=>{window.webContents.on('will-navigate',(event,url)=>{coreHandleNavigation110(window,event,url);});});
+function coreScopeClause110(scope){switch(String(scope||'all')){case'shas':return" AND s.category IN ('bavli','yerushalmi','mishnah','tosefta')";case'shulchan':return" AND (s.category='shulchan_arukh' OR s.he_book LIKE '%שולחן ערוך%' OR s.he_book LIKE '%מגן אברהם%' OR s.he_book LIKE '%פרי מגדים%' OR s.he_book LIKE '%באר היטב%' OR s.he_book LIKE '%שערי תשובה%')";case'tur_tools':return" AND (s.category='tur' OR s.he_book LIKE '%טור%' OR s.he_book LIKE '%בית יוסף%' OR s.he_book LIKE '%דרכי משה%' OR s.he_book LIKE '%פרישה%' OR s.he_book LIKE '%דרישה%')";case'tanakh_tools':return" AND s.category='tanakh'";case'rambam_commentaries':return" AND (s.he_book LIKE '%כסף משנה%' OR s.he_book LIKE '%מגיד משנה%' OR s.he_book LIKE '%לחם משנה%' OR s.he_book LIKE '%משנה למלך%' OR s.he_book LIKE '%הגהות מיימוניות%' OR s.he_book LIKE '%מגדל עוז%' OR s.he_book LIKE '%מעשה רקח%' OR s.he_book LIKE '%מרכבת המשנה%')";case'responsa_rishonim':return" AND (s.category='responsa' OR s.category='rishonim') AND (s.he_book LIKE '%תשובות%' OR s.he_book LIKE '%רשב%א%' OR s.he_book LIKE '%ריב%ש%' OR s.he_book LIKE '%רא%ש%' OR s.he_book LIKE '%רמב%ן%' OR s.he_book LIKE '%ר%ן%')";default:return''}}
+function privateRows110(query,scope){if(String(scope||'all')!=='all')return[];try{return store.search(String(query||'').slice(0,500),[],'hybrid').slice(0,30).map((x,i)=>({id:x.id||('private-'+i),book:x.title||'מקור פרטי',he_book:x.title||'מקור פרטי',category:x.category||'private',ref:x.locator||'',text:x.exactText||'',seq:i,rank:999,source:'private'}))}catch{return[]}}
+function coreSearch110(query,scope,limit){const raw=String(query||'').slice(0,600),normalized=(0,_core.normalizeHebrew)(raw),started=Date.now();if(!normalized)return{query:raw,scope:scope||'all',results:[],elapsedMs:0};const terms=normalized.split(/\s+/).filter(x=>x.length>1).slice(0,18),attempts=['"'+normalized.replace(/"/g,'')+'"',terms.map(x=>'"'+x.replace(/"/g,'')+'"').join(' AND '),terms.map(x=>'"'+x.replace(/"/g,'')+'"').join(' OR ')],where=coreScopeClause110(scope),max=Math.min(Math.max(Number(limit)||60,1),100);let built=[];for(const expression of attempts.filter(Boolean)){const sql='SELECT s.id,s.book,s.he_book,s.category,s.ref,s.text,s.seq,bm25(segments_fts) AS rank FROM segments_fts JOIN segments s ON s.id=segments_fts.rowid WHERE segments_fts MATCH '+sqlQuote(expression)+where+' ORDER BY rank LIMIT '+max+';';built=runLocalSql(sql);if(built.length)break}const priv=privateRows110(raw,scope),seen=new Set(),rows=[...built,...priv].filter(r=>{const k=(r.he_book||r.book)+'|'+(r.ref||'')+'|'+(r.text||'');if(seen.has(k))return false;seen.add(k);return true}).slice(0,max);return{query:raw,scope:scope||'all',results:rows,elapsedMs:Date.now()-started}}
+function privateCatalog110(scope){if(String(scope||'all')!=='all')return[];try{return(store.read().knowledge||[]).map(x=>({title:x.title||'מקור פרטי',he_title:x.title||'מקור פרטי',category:x.category||'private',license:x.license||'',segments:Number(x.segmentCount||x.blocks&&x.blocks.length||0),source:'private'}))}catch{return[]}}
+function coreCatalog110(scope,limit){const sc=String(scope||'all'),max=Math.min(Math.max(Number(limit)||500,1),1000);let where='1=1';if(sc==='shas')where="category IN ('bavli','yerushalmi','mishnah','tosefta')";else if(sc==='shulchan')where="category='shulchan_arukh' OR he_title LIKE '%שולחן ערוך%' OR he_title LIKE '%מגן אברהם%' OR he_title LIKE '%פרי מגדים%'";else if(sc==='tur_tools')where="category='tur' OR he_title LIKE '%טור%' OR he_title LIKE '%בית יוסף%' OR he_title LIKE '%דרכי משה%'";else if(sc==='tanakh_tools')where="category='tanakh'";else if(sc==='rambam_commentaries')where="he_title LIKE '%כסף משנה%' OR he_title LIKE '%מגיד משנה%' OR he_title LIKE '%לחם משנה%' OR he_title LIKE '%משנה למלך%' OR he_title LIKE '%הגהות מיימוניות%' OR he_title LIKE '%מגדל עוז%' OR he_title LIKE '%מעשה רקח%' OR he_title LIKE '%מרכבת המשנה%'";else if(sc==='responsa_rishonim')where="(category='responsa' OR category='rishonim') AND (he_title LIKE '%תשובות%' OR he_title LIKE '%רשב%א%' OR he_title LIKE '%ריב%ש%' OR he_title LIKE '%רא%ש%')";const built=runLocalSql('SELECT title,he_title,category,license,segments FROM books WHERE '+where+' ORDER BY COALESCE(NULLIF(he_title,\'\'),title) COLLATE NOCASE LIMIT '+max+';');return[...privateCatalog110(sc),...built].slice(0,max)}
+function coreHandleNavigation110(win,event,url){if(!String(url||'').startsWith('rambam-core110://'))return false;event.preventDefault();let rid='';try{const u=new URL(url);rid=u.searchParams.get('rid')||'';const action=u.hostname||u.pathname.replace(/^\//,'');let data;if(action==='search')data=coreSearch110(u.searchParams.get('q')||'',u.searchParams.get('scope')||'all',Number(u.searchParams.get('limit')||60));else if(action==='catalog')data=coreCatalog110(u.searchParams.get('scope')||'all',Number(u.searchParams.get('limit')||500));else if(action==='stats')data=coreStats181();else if(action==='context')data=coreContext181(u.searchParams.get('id')||'',Number(u.searchParams.get('radius')||3));else throw new Error('Unknown 1.10 action: '+action);coreSend181(win,rid,true,data)}catch(error){coreSend181(win,rid,false,{message:String(error&&error.message||error)})}return true}
+_electron.app.on('browser-window-created',(_event,window)=>{window.webContents.on('will-navigate',(event,url)=>{coreHandleNavigation110(window,event,url)})});
 `;
-s=s.replace(marker,helpers+'\n'+marker);
-fs.writeFileSync(mainPath,s,'utf8');
-const pkg=JSON.parse(fs.readFileSync(packagePath,'utf8'));pkg.version='1.10.0';fs.writeFileSync(packagePath,JSON.stringify(pkg,null,2),'utf8');
-console.log('Applied FUNCTIONAL_CORE_110; renderer/CSS untouched.');
+s=s.replace(marker,helpers+'\n'+marker);fs.writeFileSync(mainPath,s,'utf8');const pkg=JSON.parse(fs.readFileSync(packagePath,'utf8'));pkg.version='1.10.0';fs.writeFileSync(packagePath,JSON.stringify(pkg,null,2),'utf8');console.log('Applied FUNCTIONAL_CORE_110; renderer/CSS untouched.');
