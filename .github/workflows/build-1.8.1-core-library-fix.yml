@@ -1,7 +1,7 @@
 name: Build HaYad 1.8.1 Core Library Fix
 on:
   push:
-    branches: [v1.8.0-core-local-library]
+    branches: [v1.8.1-core-upgrade-fix]
   workflow_dispatch:
 permissions:
   contents: write
