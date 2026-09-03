@@ -1,0 +1,54 @@
+name: Build HaYad 1.11.1 Preserve Tools
+on:
+  push:
+    branches: [v1.11.1-preserve-tools]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.11.1-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build1111/payload | Out-Null
+          Copy-Item build1111/core-library-ui-1.11.1.js build1111/payload/core-library-ui.js
+          Copy-Item build1111/rambam-bahir-1.11.1.json build1111/payload/rambam-bahir-1.11.1.json
+          choco install nsis -y --no-progress
+      - name: Validate preserve-tools sidebar
+        shell: pwsh
+        run: |
+          node --check build1111/payload/core-library-ui.js
+          $ui=Get-Content build1111/payload/core-library-ui.js -Raw -Encoding UTF8
+          foreach($x in @('workspaceDetected','originalSelects','mirrorNavigation','ש״ס','שו״ע ונושאי כליו','טור ונושאי כליו','תנ״ך ומפרשיו','מפרשי הרמב״ם','שו״ת ראשונים','שאל את המאגר','העלה ספר למאגר','OpenAI API Key אישי')){if(-not $ui.Contains($x)){throw "Missing requirement: $x"}}
+          foreach($x in @('בדוק מקור','הפק Word','תצוגה מקדימה','נקד','שמור','מאסטר')){if(-not $ui.Contains($x)){throw "Original-tool detector missing: $x"}}
+          if($ui.Contains('rb111-root')){throw 'Full-screen replacement must not exist'}
+          if($ui.Contains('body.innerHTML')){throw 'Original DOM replacement is forbidden'}
+          $nsi=Get-Content build1111/installer-1.11.1.nsi -Raw -Encoding UTF8
+          if($nsi.Contains('RMDir /r "$TARGET\resources\app"')){throw 'Installer must not remove original app'}
+          if($nsi.Contains('File /r "payload\asar-tool')){throw 'Installer must not rebuild app.asar'}
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Push-Location build1111
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer-1.11.1.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build1111/HaYad-HaHazaka-Update-1.11.1.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.11.1.exe" | Set-Content build1111/SHA256-1.11.1.txt
+          $tag='hayad-v1.11.1-preserve-tools'
+          $notes='1.11.1 restores the original working screen instead of replacing it. Original book/chapter/halakha selection, Word toolbar, nikkud, save, preview and all existing controls remain visible and functional. A collapsible right sidebar adds navigation mirroring, local corpus search, library, grounded multi-turn chat and per-user encrypted API settings. The home screen is untouched and app.asar is not rebuilt by this update.'
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){gh release upload $tag $exe build1111/SHA256-1.11.1.txt --clobber} else {gh release create $tag $exe build1111/SHA256-1.11.1.txt --title 'הרמב״ם הבהיר 1.11.1 — שימור כלים ומאגר ימני' --notes $notes --target $env:GITHUB_SHA}
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
