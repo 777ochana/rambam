@@ -1,0 +1,81 @@
+name: Build HaYad 1.10.0 Functional Core
+on:
+  push:
+    branches: [v1.10.0-functional-core]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.10.0-functional-core
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build110/payload/asar-tool | Out-Null
+          Copy-Item build110/apply-1.10.0.js build110/payload/apply-1.10.0.cjs
+          Copy-Item build176/patch-main-1.7.6.js build110/payload/patch-main-1.7.6.cjs
+          Copy-Item build181/patch-core-1.8.1.js build110/payload/patch-core-1.8.1.cjs
+          Copy-Item build190/patch-visual-1.9.0.js build110/payload/patch-visual-1.9.0.cjs
+          Copy-Item build110/patch-functional-1.10.0.js build110/payload/patch-functional-1.10.0.cjs
+          Copy-Item build110/patch-api-1.10.0.js build110/payload/patch-api-1.10.0.cjs
+          Copy-Item build110/core-library-ui-1.10.0.js build110/payload/core-library-ui.js
+          Copy-Item build110/workspace-visual-1.10.0.js build110/payload/workspace-visual-1.9.0.js
+          Copy-Item (Get-Command node).Source build110/payload/asar-tool/node.exe
+          npm install --prefix build110/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          choco install nsis -y --no-progress
+      - name: Validate scripts and patch chain
+        shell: pwsh
+        run: |
+          node --check build110/payload/apply-1.10.0.cjs
+          node --check build110/payload/patch-main-1.7.6.cjs
+          node --check build110/payload/patch-core-1.8.1.cjs
+          node --check build110/payload/patch-visual-1.9.0.cjs
+          node --check build110/payload/patch-functional-1.10.0.cjs
+          node --check build110/payload/patch-api-1.10.0.cjs
+          node --check build110/payload/core-library-ui.js
+          node --check build110/payload/workspace-visual-1.9.0.js
+          New-Item -ItemType Directory -Force build110/fixture | Out-Null
+          Copy-Item build181/fixture-main-1.6.3.js build110/fixture/main.js
+          Copy-Item build181/fixture-package.json build110/fixture/package.json
+          node build110/payload/patch-main-1.7.6.cjs build110/fixture/main.js build110/fixture/package.json
+          node build110/payload/patch-core-1.8.1.cjs build110/fixture/main.js build110/fixture/package.json
+          node build110/payload/patch-visual-1.9.0.cjs build110/fixture/main.js build110/fixture/package.json
+          node build110/payload/patch-functional-1.10.0.cjs build110/fixture/main.js build110/fixture/package.json
+          node build110/payload/patch-api-1.10.0.cjs build110/fixture/main.js build110/fixture/package.json
+          node --check build110/fixture/main.js
+          $m=Get-Content build110/fixture/main.js -Raw -Encoding UTF8
+          if(-not $m.Contains('FUNCTIONAL_CORE_110')){throw 'Functional core marker missing'}
+          if(-not $m.Contains('AI_CORE_110')){throw 'AI core marker missing'}
+          $ui=Get-Content build110/payload/core-library-ui.js -Raw -Encoding UTF8
+          foreach($x in @('ש״ס','שו״ע ונושאי כליו','טור ונושאי כליו','תנ״ך ומפרשיו','מפרשי הרמב״ם','שו״ת ראשונים','מחברת מחקר','שמור הלכה ב־Word','הגדר API','שאל את המאגר')){if(-not $ui.Contains($x)){throw "Missing UI requirement: $x"}}
+          $payload=(Resolve-Path build110/payload).Path
+          $node=(Resolve-Path build110/payload/asar-tool/node.exe).Path
+          & $node build110/payload/apply-1.10.0.cjs $payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){throw "1.10 self-test failed: $LASTEXITCODE"}
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Copy-Item build110/installer-1.10.0.nsi build110/installer.nsi
+          Push-Location build110
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build110/HaYad-HaHazaka-Update-1.10.0.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.10.0.exe" | Set-Content build110/SHA256-1.10.0.txt
+          $tag='hayad-v1.10.0-functional-core'
+          $notes='1.10.0 keeps the approved 14-book home screen untouched and makes the local Torah corpus a permanent core layer. It adds a unified editable halakha surface, grouped source categories, grounded multi-turn chat, editable/copyable answers, footnotes/expansions, research notebook, single-halakhah Word export, manual source import bridge, and encrypted per-user OpenAI API settings with gpt-5.6-luna as the low-cost default. Original renderer/CSS bytes remain locked.'
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){gh release upload $tag $exe build110/SHA256-1.10.0.txt --clobber} else {gh release create $tag $exe build110/SHA256-1.10.0.txt --title 'הרמב״ם הבהיר 1.10.0 — מאגר כליבה ועורך מאוחד' --notes $notes --target $env:GITHUB_SHA}
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
