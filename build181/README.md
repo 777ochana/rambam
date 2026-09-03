@@ -1,0 +1,2 @@
+# HaYad 1.8.1
+Robust Core Library installer hotfix. Prefers an installed 1.7.6 backend and applies only the Core Library layer; falls back to pristine 1.6.3 + 1.7.6 + Core Library when required. Renderer remains SHA-256 locked.
