@@ -1,0 +1,81 @@
+name: Build HaYad 1.8.0 Core Local Library
+on:
+  push:
+    branches: [v1.8.0-core-local-library]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.8.0-core-local-library
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare compact Core Library update
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build180/payload/asar-tool | Out-Null
+          '{"type":"commonjs","private":true}' | Set-Content build180/payload/package.json -Encoding utf8NoBOM
+          Copy-Item build180/apply-1.8.0.js build180/payload/apply-1.8.0.js
+          Copy-Item build176/patch-main-1.7.6.js build180/payload/patch-main-1.7.6.js
+          Copy-Item build180/patch-core-1.8.0.js build180/payload/patch-core-1.8.0.js
+          Copy-Item (Get-Command node).Source build180/payload/asar-tool/node.exe
+          npm install --prefix build180/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build180/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
+          choco install nsis -y --no-progress
+
+      - name: Validate Core Library layer and UI lock
+        shell: pwsh
+        run: |
+          node --check build180/apply-1.8.0.js
+          node --check build180/patch-core-1.8.0.js
+          node --check build176/patch-main-1.7.6.js
+          $core=Get-Content build180/patch-core-1.8.0.js -Raw -Encoding UTF8
+          foreach($needle in @('LOCAL_CORE_180','rb-core-bar','rb-core-dock','ספריית הספרים','מצא מקור','שאל את המאגר','rambam-local://')){
+            if(-not $core.Contains($needle)){throw "Core UI assertion missing: $needle"}
+          }
+          $apply=Get-Content build180/apply-1.8.0.js -Raw -Encoding UTF8
+          foreach($hash in @('e2a301bad496d87490eaceb091204d2287fa60f00c5d22341403e6f8daa69e76','6df2817f475b85236d7c4764d1fa2339673b3d827cd6442fbce042b5dbcefc37','74e52686fc6f255043062277f385b45cd85e2fdd16abc42dc00afbe18913de24')){
+            if(-not $apply.Contains($hash)){throw "UI lock hash missing: $hash"}
+          }
+          $payload=(Resolve-Path build180/payload).Path
+          $node=(Resolve-Path build180/payload/asar-tool/node.exe).Path
+          $script=(Resolve-Path build180/payload/apply-1.8.0.js).Path
+          & $node $script $payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){
+            Get-Content "$env:TEMP\HaYad-1.8.0-install.log" -ErrorAction SilentlyContinue
+            throw "Core Library self-test failed: $LASTEXITCODE"
+          }
+
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Copy-Item build180/installer-1.8.0.nsi build180/installer.nsi
+          Push-Location build180
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build180/HaYad-HaHazaka-Update-1.8.0.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.8.0.exe" | Set-Content build180/SHA256-1.8.0.txt
+          $tag='hayad-v1.8.0-core-local-library'
+          $notes=@'
+          1.8.0 promotes the already-installed local Torah corpus to a visible core workspace layer. The original 1.6.3 renderer files remain byte-identical and SHA-256 locked. A persistent bottom search bar is injected at runtime, with two explicit modes (Find Source / Ask the Library), category filters, a full local-book library view, results plus source-context preview, and copy/copy-with-source actions. The legacy “בדוק מקור” / “שאל את המאגר” buttons are routed to the same Core Library workspace instead of the old floating dialog. The local corpus remains in resources/local-library and no Sefaria/HebrewBooks dependency is added.
+          '@
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release upload $tag $exe build180/SHA256-1.8.0.txt --clobber
+          } else {
+            gh release create $tag $exe build180/SHA256-1.8.0.txt --title 'הרמב״ם הבהיר 1.8.0 — מאגר LOCAL כשכבת ליבה' --notes $notes --target $env:GITHUB_SHA
+          }
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
