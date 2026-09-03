@@ -1,0 +1,78 @@
+name: Build HaYad 1.7.6 UI-Locked Local Library Hotfix
+on:
+  push:
+    branches: [v1.7.6-local-library-path-fix]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: hayad-1.7.6-ui-locked-hotfix
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare compact Node hotfix
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build176/payload/asar-tool | Out-Null
+          '{"type":"commonjs","private":true}' | Set-Content build176/payload/package.json -Encoding utf8NoBOM
+          Copy-Item build176/apply-1.7.6.js build176/payload/apply-1.7.6.js
+          Copy-Item build176/patch-main-1.7.6.js build176/payload/patch-main-1.7.6.js
+          Copy-Item (Get-Command node).Source build176/payload/asar-tool/node.exe
+          npm install --prefix build176/payload/asar-tool @electron/asar@3.4.1 --omit=dev
+          if(-not (Test-Path 'build176/payload/asar-tool/node_modules/@electron/asar')){throw 'ASAR package missing'}
+          choco install nsis -y --no-progress
+
+      - name: Validate backend-only hotfix and external corpus path
+        shell: pwsh
+        run: |
+          node --check build176/apply-1.7.6.js
+          node --check build176/patch-main-1.7.6.js
+          $patch=Get-Content build176/patch-main-1.7.6.js -Raw -Encoding UTF8
+          if(-not $patch.Contains("process.resourcesPath, 'local-library'")){throw 'External resource path fix missing'}
+          if(-not $patch.Contains('setZoomFactor(1)')){throw 'Original visual-scale reset missing'}
+          foreach($hash in @('e2a301bad496d87490eaceb091204d2287fa60f00c5d22341403e6f8daa69e76','6df2817f475b85236d7c4764d1fa2339673b3d827cd6442fbce042b5dbcefc37','74e52686fc6f255043062277f385b45cd85e2fdd16abc42dc00afbe18913de24')){
+            $apply=Get-Content build176/apply-1.7.6.js -Raw -Encoding UTF8
+            if(-not $apply.Contains($hash)){throw "UI lock hash missing: $hash"}
+          }
+          $payload=(Resolve-Path build176/payload).Path
+          $node=(Resolve-Path build176/payload/asar-tool/node.exe).Path
+          $script=(Resolve-Path build176/payload/apply-1.7.6.js).Path
+          & $node $script $payload --selftest --quiet
+          if($LASTEXITCODE -ne 0){
+            Get-Content "$env:TEMP\HaYad-1.7.6-install.log" -ErrorAction SilentlyContinue
+            throw "Hotfix self-test failed: $LASTEXITCODE"
+          }
+
+      - name: Compile Unicode installer
+        shell: pwsh
+        run: |
+          Copy-Item build176/installer-1.7.6.nsi build176/installer.nsi
+          Push-Location build176
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /INPUTCHARSET UTF8 installer.nsi
+          if($LASTEXITCODE -ne 0){throw 'makensis failed'}
+          Pop-Location
+
+      - name: Checksum and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $exe='build176/HaYad-HaHazaka-Update-1.7.6.exe'
+          $sha=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$sha  HaYad-HaHazaka-Update-1.7.6.exe" | Set-Content build176/SHA256-1.7.6.txt
+          $tag='hayad-v1.7.6-local-library-path-fix'
+          $notes=@'
+          1.7.6 is a compact hotfix for installations that already ran 1.7.5. It fixes the local Torah corpus path: the database is stored at Electron's external resources/local-library directory, while 1.7.5 incorrectly looked for it inside app.asar. The original 1.6.3 renderer remains byte-identical and is protected by the same SHA-256 lock. The hotfix also restores Electron zoom to 100% without changing CSS, to neutralize visual state left by experimental builds. The installer verifies SQLite quick_check and requires at least 100 books and 10,000 segments before changing app.asar.
+          '@
+          gh release view $tag --json tagName *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release upload $tag $exe build176/SHA256-1.7.6.txt --clobber
+          } else {
+            gh release create $tag $exe build176/SHA256-1.7.6.txt --title 'הרמב״ם הבהיר 1.7.6 — תיקון מאגר LOCAL, ממשק 1.6.3 AS IS' --notes $notes --target $env:GITHUB_SHA
+          }
+          if($LASTEXITCODE -ne 0){throw 'Release publish failed'}
